@@ -48,7 +48,7 @@ async function load() {
     $('#version').textContent = `Версия ${state.version}`;
     $('#adminState').textContent = state.admin ? 'Администратор' : 'Обычный режим';
     $('.status-dot').style.background = state.admin ? 'var(--green)' : '#f6bd55';
-    $('#backupText').textContent = state.backupCount ? `Сохранено исходных значений: ${state.backupCount}` : 'Резервная копия пуста';
+    $('#backupText').textContent = state.backupCount ? (state.backupOrderKnown===false ? `Старая копия: ${state.backupCount} значений · порядок неизвестен` : `Сохранено исходных значений: ${state.backupCount}`) : 'Резервная копия пуста';
     const active = state.tweaks.filter(x=>x.enabled).length;
     $('#score').textContent = active;
     render();
@@ -96,7 +96,7 @@ async function requestToggle(input) {
 }
 
 function restartText(v){ return v==='explorer'?' · нужен перезапуск Проводника':v==='signout'?' · потребуется выход из системы':v==='reboot'?' · потребуется перезагрузка':''; }
-function setBusy(v){ busy=v; render(); renderTaskbarDrawer(); $$('#recommendedBtn,#restoreBtn,#restartBtn,#restorePointBtn,#chooseWallpaperBtn,#applyWallpaperBtn,#drawerRestartBtn,.online-wallpaper').forEach(x=>x.disabled=v);if(!v&&$('#applyWallpaperBtn'))$('#applyWallpaperBtn').disabled=!$('#wallpaperInput').files[0]; }
+function setBusy(v){ busy=v; render(); renderTaskbarDrawer(); $$('#recommendedBtn,#restoreBtn,#restartBtn,#restorePointBtn,#chooseWallpaperBtn,#applyWallpaperBtn,#drawerRestartBtn,.online-wallpaper,.tool-card').forEach(x=>x.disabled=v);if(!v&&$('#applyWallpaperBtn'))$('#applyWallpaperBtn').disabled=!$('#wallpaperInput').files[0]; }
 function esc(s=''){ return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 let toastTimer; function toast(msg,error=false){ const t=$('#toast'); t.textContent=msg;t.className='toast show'+(error?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='toast',3600); }
 function confirmBox(title,text,fn){ $('#modalTitle').textContent=title;$('#modalText').textContent=text;$('#modalWrap').hidden=false;$('#modalConfirm').onclick=()=>{$('#modalWrap').hidden=true;fn();}; }
@@ -127,6 +127,7 @@ function bind() {
   input.onchange=()=>{const file=input.files[0];if(!file)return;if(file.size>15*1024*1024){toast('Файл больше 15 МБ',true);input.value='';return;}const url=URL.createObjectURL(file);preview.style.backgroundImage=`url("${url}")`;preview.classList.add('has-image');apply.disabled=false;};
   apply.onclick=async()=>{const file=input.files[0];if(!file)return;const form=new FormData();form.append('wallpaper',file);setBusy(true);try{await api('wallpaper',{method:'POST',body:form});toast('Обои Windows установлены');await load();}catch(e){toast(e.message,true)}finally{setBusy(false);apply.disabled=!input.files[0];}};
   $$('.online-wallpaper').forEach(b=>b.onclick=()=>confirmBox('Установить обои',`Скачать стиль «${b.textContent.trim()}» из Unsplash и установить как фон Windows?`,async()=>{setBusy(true);try{await api('wallpaper/catalog',{method:'POST',body:JSON.stringify({id:b.dataset.wallpaper})});toast('Интернет-обои установлены');await load();}catch(e){toast(e.message,true)}finally{setBusy(false)}}));
+  $$('.tool-card').forEach(b=>b.onclick=async()=>{setBusy(true);try{await api('open-settings',{method:'POST',body:JSON.stringify({id:b.dataset.settings})});toast(`Открыто: ${b.querySelector('b').textContent}`);}catch(e){toast(e.message,true)}finally{setBusy(false)}});
   const drawer=$('#taskbarDrawer'), shade=$('#drawerShade');
   const openDrawer=()=>{drawer.classList.add('open');shade.classList.add('open');renderTaskbarDrawer()};
   const closeDrawer=()=>{drawer.classList.remove('open');shade.classList.remove('open')};
