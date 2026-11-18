@@ -15,7 +15,9 @@ const cardIcons = {appearance:'✦',taskbar:'▤',explorer:'▱',privacy:'◉',g
 let state = null, activeCategory = 'all', filter = 'all', query = '', busy = false;
 
 async function api(path, opts={}) {
-  const res = await fetch('/api/' + path, { ...opts, headers:{'X-Customizer-Token':TOKEN,'Content-Type':'application/json',...(opts.headers||{})} });
+  const headers = {'X-Customizer-Token':TOKEN,...(opts.headers||{})};
+  if (!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+  const res = await fetch('/api/' + path, { ...opts, headers });
   let data = {}; try { data = await res.json(); } catch {}
   if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
   return data;
@@ -83,10 +85,17 @@ async function requestToggle(input) {
 }
 
 function restartText(v){ return v==='explorer'?' · нужен перезапуск Проводника':v==='signout'?' · потребуется выход из системы':v==='reboot'?' · потребуется перезагрузка':''; }
-function setBusy(v){ busy=v; render(); $$('#recommendedBtn,#restoreBtn,#restartBtn,#restorePointBtn').forEach(x=>x.disabled=v); }
+function setBusy(v){ busy=v; render(); $$('#recommendedBtn,#restoreBtn,#restartBtn,#restorePointBtn,#chooseWallpaperBtn,#applyWallpaperBtn').forEach(x=>x.disabled=v);if(!v&&$('#applyWallpaperBtn'))$('#applyWallpaperBtn').disabled=!$('#wallpaperInput').files[0]; }
 function esc(s=''){ return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 let toastTimer; function toast(msg,error=false){ const t=$('#toast'); t.textContent=msg;t.className='toast show'+(error?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='toast',3600); }
 function confirmBox(title,text,fn){ $('#modalTitle').textContent=title;$('#modalText').textContent=text;$('#modalWrap').hidden=false;$('#modalConfirm').onclick=()=>{$('#modalWrap').hidden=true;fn();}; }
+
+function setTheme(name) {
+  const theme = ['ocean','aurora','sunset','midnight'].includes(name) ? name : 'ocean';
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('w11-theme', theme);
+  $$('.theme-card').forEach(x => x.classList.toggle('active', x.dataset.theme === theme));
+}
 
 function bind() {
   $('#search').oninput=e=>{query=e.target.value.trim().toLowerCase();render();};
@@ -98,7 +107,15 @@ function bind() {
   $('#restartBtn').onclick=()=>confirmBox('Перезапустить Проводник','Панель задач и окна Проводника исчезнут на несколько секунд.',async()=>{setBusy(true);try{await api('restart-explorer',{method:'POST',body:'{}'});toast('Проводник перезапущен');}catch(e){toast(e.message,true)}finally{setBusy(false)}});
   $('#restorePointBtn').onclick=async()=>{setBusy(true);try{await api('restore-point',{method:'POST',body:'{}'});toast('Точка восстановления создана');}catch(e){toast(e.message,true)}finally{setBusy(false)}};
   $('#exportBtn').onclick=async()=>{try{const r=await fetch('/api/export',{headers:{'X-Customizer-Token':TOKEN}});if(!r.ok)throw new Error('Не удалось экспортировать');const b=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='win11-customizer-backup.json';a.click();URL.revokeObjectURL(a.href);}catch(e){toast(e.message,true)}};
+  $$('.theme-card').forEach(b => b.onclick=()=>setTheme(b.dataset.theme));
+  const input=$('#wallpaperInput'), choose=$('#chooseWallpaperBtn'), apply=$('#applyWallpaperBtn'), preview=$('#wallpaperPreview');
+  choose.onclick=()=>input.click();
+  $('#wallpaperBox').ondragover=e=>{e.preventDefault();e.currentTarget.classList.add('drag')};
+  $('#wallpaperBox').ondragleave=e=>e.currentTarget.classList.remove('drag');
+  $('#wallpaperBox').ondrop=e=>{e.preventDefault();e.currentTarget.classList.remove('drag');if(e.dataTransfer.files[0]){input.files=e.dataTransfer.files;input.onchange();}};
+  input.onchange=()=>{const file=input.files[0];if(!file)return;if(file.size>15*1024*1024){toast('Файл больше 15 МБ',true);input.value='';return;}const url=URL.createObjectURL(file);preview.style.backgroundImage=`url("${url}")`;preview.classList.add('has-image');apply.disabled=false;};
+  apply.onclick=async()=>{const file=input.files[0];if(!file)return;const form=new FormData();form.append('wallpaper',file);setBusy(true);try{await api('wallpaper',{method:'POST',body:form});toast('Обои Windows установлены');await load();}catch(e){toast(e.message,true)}finally{setBusy(false);apply.disabled=!input.files[0];}};
 }
 
-initNav(); bind(); updateHeading(); updateClock(); setInterval(updateClock, 10000); load();
+initNav(); bind(); setTheme(localStorage.getItem('w11-theme')||'ocean'); updateHeading(); updateClock(); setInterval(updateClock, 10000); load();
 
