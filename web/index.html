@@ -36,6 +36,24 @@
           <div><p class="eyebrow" id="eyebrow">ОБЗОР</p><h2 id="pageTitle">Моя Windows</h2></div>
           <div class="search"><span>⌕</span><input id="search" placeholder="Найти настройку…" autocomplete="off"></div>
         </div>
+
+        <section class="personalize-studio" id="personalizeStudio">
+          <div class="studio-copy"><span>СТУДИЯ ОФОРМЛЕНИЯ</span><h3>Создайте свой рабочий стол</h3><p>Выберите настроение интерфейса и установите собственные обои Windows прямо из программы.</p></div>
+          <div class="theme-picker" aria-label="Темы интерфейса">
+            <button class="theme-card active" data-theme="ocean" title="Океан"><i></i><span>Океан</span></button>
+            <button class="theme-card" data-theme="aurora" title="Аврора"><i></i><span>Аврора</span></button>
+            <button class="theme-card" data-theme="sunset" title="Закат"><i></i><span>Закат</span></button>
+            <button class="theme-card" data-theme="midnight" title="Полночь"><i></i><span>Полночь</span></button>
+          </div>
+          <div class="wallpaper-box" id="wallpaperBox">
+            <input type="file" id="wallpaperInput" accept="image/jpeg,image/png,image/bmp" hidden>
+            <div class="wallpaper-preview" id="wallpaperPreview"><span>▧</span></div>
+            <div class="wallpaper-copy"><b>Обои Windows</b><small>JPEG, PNG или BMP · до 15 МБ</small></div>
+            <button class="glass-button" id="chooseWallpaperBtn">Выбрать</button>
+            <button class="primary" id="applyWallpaperBtn" disabled>Установить</button>
+          </div>
+        </section>
+
         <div class="filters"><button class="chip active" data-filter="all">Все</button><button class="chip" data-filter="recommended">Рекомендуемые</button><button class="chip" data-filter="enabled">Активные</button></div>
         <div class="section-head"><div><h3 id="sectionTitle">Все настройки</h3><p id="sectionDesc">Безопасные изменения Windows 11</p></div><span id="count"></span></div>
         <div class="grid" id="grid"><div class="loading">Читаю параметры Windows…</div></div>
