@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +25,7 @@ import (
 
 const (
 	appName    = "Win11 Customizer"
-	appVersion = "1.3.1"
+	appVersion = "1.4.0"
 )
 
 //go:embed web/*
@@ -59,17 +60,23 @@ type tweakState struct {
 }
 
 type backupValue struct {
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	Existed   bool   `json:"existed"`
-	Type      string `json:"type,omitempty"`
-	Data      string `json:"data,omitempty"`
-	DeleteKey bool   `json:"deleteKey,omitempty"`
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Existed     bool   `json:"existed"`
+	KeyExisted  bool   `json:"keyExisted,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Data        string `json:"data,omitempty"`
+	DeleteKey   bool   `json:"deleteKey,omitempty"`
+	RawType     uint32 `json:"rawType,omitempty"`
+	RawData     string `json:"rawData,omitempty"`
+	RawCaptured bool   `json:"rawCaptured,omitempty"`
 }
 
 type backupFile struct {
-	Created time.Time              `json:"created"`
-	Values  map[string]backupValue `json:"values"`
+	Created    time.Time              `json:"created"`
+	Values     map[string]backupValue `json:"values"`
+	Order      []string               `json:"order,omitempty"`
+	OrderKnown bool                   `json:"orderKnown"`
 }
 
 type app struct {
@@ -104,7 +111,6 @@ var tweaks = []tweak{
 	{ID: "show-extensions", Category: "explorer", Title: "Показывать расширения файлов", Description: "Показывает .exe, .jpg и другие расширения — полезно и безопаснее.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "HideFileExt", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "show-hidden", Category: "explorer", Title: "Показывать скрытые файлы", Description: "Отображает скрытые элементы в Проводнике (системные защищённые файлы остаются скрыты).", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "Hidden", Type: "REG_DWORD", On: "1", Off: str("2")}}},
 	{ID: "compact-explorer", Category: "explorer", Title: "Компактный вид Проводника", Description: "Уменьшает вертикальные отступы между файлами.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "UseCompactMode", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "classic-context", Category: "explorer", Title: "Классическое контекстное меню", Description: "Сразу показывает полное меню вместо «Показать дополнительные параметры». Может перестать работать в будущих сборках.", Risk: "medium", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32`, Name: "", Type: "REG_SZ", On: "", Off: nil, DeleteKeyOnOff: true}}},
 	{ID: "disable-ad-id", Category: "privacy", Title: "Отключить рекламный ID", Description: "Запрещает приложениям использовать персональный рекламный идентификатор.", Risk: "safe", Recommended: true, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo`, Name: "Enabled", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "disable-suggestions", Category: "privacy", Title: "Отключить рекомендации и рекламу", Description: "Уменьшает предложения приложений, советы и рекламный контент Windows.", Risk: "safe", Recommended: true, Ops: []operation{
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager`, Name: "SubscribedContent-338388Enabled", Type: "REG_DWORD", On: "0", Off: str("1")},
@@ -133,6 +139,23 @@ var tweaks = []tweak{
 	{ID: "menu-delay", Category: "system", Title: "Быстрые меню", Description: "Сокращает задержку появления подменю с 400 до 100 мс.", Risk: "safe", Recommended: true, Restart: "signout", Ops: []operation{{Path: `HKCU\Control Panel\Desktop`, Name: "MenuShowDelay", Type: "REG_SZ", On: "100", Off: str("400")}}},
 	{ID: "long-paths", Category: "system", Title: "Длинные пути Win32", Description: "Разрешает совместимым приложениям работать с путями длиннее 260 символов.", Risk: "safe", Recommended: true, Admin: true, Restart: "reboot", Ops: []operation{{Path: `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`, Name: "LongPathsEnabled", Type: "REG_DWORD", On: "1", Off: str("0")}}},
 	{ID: "seconds-clock", Category: "system", Title: "Секунды в системных часах", Description: "Показывает секунды в часах панели задач; может немного увеличить расход энергии.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowSecondsInSystemClock", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+}
+
+var settingsPages = map[string]string{
+	"personalize":   "ms-settings:personalization",
+	"background":    "ms-settings:personalization-background",
+	"colors":        "ms-settings:personalization-colors",
+	"themes":        "ms-settings:themes",
+	"start":         "ms-settings:personalization-start",
+	"taskbar":       "ms-settings:taskbar",
+	"display":       "ms-settings:display",
+	"sound":         "ms-settings:sound",
+	"bluetooth":     "ms-settings:bluetooth",
+	"apps":          "ms-settings:appsfeatures",
+	"startup":       "ms-settings:startupapps",
+	"storage":       "ms-settings:storagesense",
+	"accessibility": "ms-settings:easeofaccess-display",
+	"update":        "ms-settings:windowsupdate",
 }
 
 func main() {
@@ -169,12 +192,22 @@ func newApp() *app {
 	}
 	dir := filepath.Join(base, "Win11Customizer")
 	_ = os.MkdirAll(dir, 0755)
-	a := &app{backupPath: filepath.Join(dir, "backup.json"), backup: backupFile{Created: time.Now(), Values: map[string]backupValue{}}}
+	a := &app{backupPath: filepath.Join(dir, "backup.json"), backup: backupFile{Created: time.Now(), Values: map[string]backupValue{}, OrderKnown: true}}
 	if b, err := os.ReadFile(a.backupPath); err == nil {
 		_ = json.Unmarshal(b, &a.backup)
 	}
 	if a.backup.Values == nil {
 		a.backup.Values = map[string]backupValue{}
+	}
+	if len(a.backup.Order) == 0 && len(a.backup.Values) > 0 {
+		a.backup.OrderKnown = false
+		for key := range a.backup.Values {
+			a.backup.Order = append(a.backup.Order, key)
+		}
+		sort.Strings(a.backup.Order)
+	}
+	if len(a.backup.Values) == 0 {
+		a.backup.OrderKnown = true
 	}
 	return a
 }
@@ -217,7 +250,28 @@ func (a *app) routes(mux *http.ServeMux, token string) {
 	mux.HandleFunc("POST /api/restore-point", auth(a.handleRestorePoint))
 	mux.HandleFunc("POST /api/wallpaper", auth(a.handleWallpaper))
 	mux.HandleFunc("POST /api/wallpaper/catalog", auth(a.handleCatalogWallpaper))
+	mux.HandleFunc("POST /api/open-settings", auth(a.handleOpenSettings))
 	mux.HandleFunc("GET /api/export", auth(a.handleExport))
+}
+
+func (a *app) handleOpenSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Некорректный запрос")
+		return
+	}
+	uri, ok := settingsPages[req.ID]
+	if !ok {
+		writeError(w, http.StatusNotFound, "Раздел параметров не найден")
+		return
+	}
+	if err := launchSettings(uri); err != nil {
+		writeError(w, http.StatusInternalServerError, "Не удалось открыть параметры Windows")
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (a *app) handleState(w http.ResponseWriter, _ *http.Request) {
@@ -230,7 +284,7 @@ func (a *app) handleState(w http.ResponseWriter, _ *http.Request) {
 		}
 		states = append(states, s)
 	}
-	writeJSON(w, map[string]any{"app": appName, "version": appVersion, "windows": windowsInfo(), "admin": isAdmin(), "backupCount": len(a.backup.Values), "tweaks": states})
+	writeJSON(w, map[string]any{"app": appName, "version": appVersion, "windows": windowsInfo(), "admin": isAdmin(), "backupCount": len(a.backup.Values), "backupOrderKnown": a.backup.OrderKnown, "tweaks": states})
 }
 
 func (a *app) handleApply(w http.ResponseWriter, r *http.Request) {
@@ -278,38 +332,113 @@ func (a *app) handleRecommended(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) apply(t tweak, enabled bool) error {
-	for _, op := range t.Ops {
-		if err := a.remember(op); err != nil {
-			return err
+	before := make([]backupValue, len(t.Ops))
+	for i, op := range t.Ops {
+		value, err := readBackupValue(op)
+		if err != nil {
+			return fmt.Errorf("%s: снимок: %w", t.Title, err)
 		}
-		var err error
-		if enabled {
-			err = regSet(op.Path, op.Name, op.Type, op.On)
-		} else if op.DeleteKeyOnOff {
-			err = regDeleteKey(op.Path)
-		} else if op.Off == nil {
-			err = regDelete(op.Path, op.Name)
-		} else {
-			err = regSet(op.Path, op.Name, op.Type, *op.Off)
+		before[i] = value
+		a.rememberValue(op, value)
+	}
+	// The durable snapshot must exist before the first registry mutation.
+	if err := a.saveBackup(); err != nil {
+		return fmt.Errorf("%s: резервная копия: %w", t.Title, err)
+	}
+	for i, op := range t.Ops {
+		err := applyOperation(op, enabled)
+		if err == nil {
+			var matches bool
+			matches, err = operationMatches(op, enabled)
+			if err == nil && !matches {
+				err = errors.New("Windows не подтвердила новое значение")
+			}
 		}
 		if err != nil {
-			return fmt.Errorf("%s: %w", t.Title, err)
+			rollbackErr := restoreValues(before[:i+1])
+			if rollbackErr != nil {
+				return fmt.Errorf("%s: %v; автоматический откат: %w", t.Title, err, rollbackErr)
+			}
+			return fmt.Errorf("%s: %w (изменение отменено)", t.Title, err)
 		}
 	}
-	return a.saveBackup()
+	return nil
 }
 
-func (a *app) remember(op operation) error {
+func readBackupValue(op operation) (backupValue, error) {
+	rawType, raw, exists, keyExists, err := nativeReadRegistryValue(op.Path, op.Name)
+	if err != nil {
+		return backupValue{}, err
+	}
+	typ, data, _, textErr := regGet(op.Path, op.Name)
+	if textErr != nil && exists {
+		return backupValue{}, textErr
+	}
+	return backupValue{Path: op.Path, Name: op.Name, Existed: exists, KeyExisted: keyExists, Type: typ, Data: data, DeleteKey: op.DeleteKeyOnOff, RawType: rawType, RawData: base64.StdEncoding.EncodeToString(raw), RawCaptured: true}, nil
+}
+
+func (a *app) rememberValue(op operation, value backupValue) {
 	key := strings.ToLower(op.Path + "|" + op.Name)
 	if _, ok := a.backup.Values[key]; ok {
-		return nil
+		return
 	}
-	typ, data, exists, err := regGet(op.Path, op.Name)
+	a.backup.Values[key] = value
+	a.backup.Order = append(a.backup.Order, key)
+}
+
+func applyOperation(op operation, enabled bool) error {
+	if enabled {
+		return regSet(op.Path, op.Name, op.Type, op.On)
+	}
+	if op.DeleteKeyOnOff {
+		// Removing the whole key could destroy values or subkeys that were not
+		// created by this application. Deleting the controlled value is enough.
+		return regDelete(op.Path, op.Name)
+	}
+	if op.Off == nil {
+		return regDelete(op.Path, op.Name)
+	}
+	return regSet(op.Path, op.Name, op.Type, *op.Off)
+
+}
+
+func operationMatches(op operation, enabled bool) (bool, error) {
+	_, data, exists, err := regGet(op.Path, op.Name)
 	if err != nil {
-		return err
+		return false, err
 	}
-	a.backup.Values[key] = backupValue{Path: op.Path, Name: op.Name, Existed: exists, Type: typ, Data: data, DeleteKey: op.DeleteKeyOnOff}
-	return nil
+	if enabled {
+		return exists && equalRegistry(data, op.On, op.Type), nil
+	}
+	if op.DeleteKeyOnOff || op.Off == nil {
+		return !exists, nil
+	}
+	return exists && equalRegistry(data, *op.Off, op.Type), nil
+}
+
+func restoreValues(values []backupValue) error {
+	var restoreErr error
+	for i := len(values) - 1; i >= 0; i-- {
+		value := values[i]
+		var err error
+		if value.Existed {
+			if value.RawCaptured {
+				var raw []byte
+				raw, err = base64.StdEncoding.DecodeString(value.RawData)
+				if err == nil {
+					err = nativeWriteRegistryValue(value.Path, value.Name, value.RawType, raw)
+				}
+			} else {
+				err = regSet(value.Path, value.Name, value.Type, value.Data)
+			}
+		} else {
+			err = nativeDeleteRegistryValue(value.Path, value.Name)
+		}
+		if err != nil {
+			restoreErr = errors.Join(restoreErr, fmt.Errorf("%s\\%s: %w", value.Path, value.Name, err))
+		}
+	}
+	return restoreErr
 }
 
 func (a *app) saveBackup() error {
@@ -339,28 +468,30 @@ func (a *app) handleRestore(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 	}
-	n := 0
-	for _, v := range a.backup.Values {
-		var err error
-		if v.Existed {
-			err = regSet(v.Path, v.Name, v.Type, v.Data)
-		} else if v.DeleteKey {
-			err = regDeleteKey(v.Path)
-		} else {
-			err = regDelete(v.Path, v.Name)
+	values := make([]backupValue, 0, len(a.backup.Order))
+	for _, key := range a.backup.Order {
+		v, ok := a.backup.Values[key]
+		if !ok {
+			continue
 		}
-		if err != nil {
-			writeError(w, 500, fmt.Sprintf("Откат %s: %v", v.Name, err))
+		values = append(values, v)
+	}
+	if err := restoreValues(values); err != nil {
+		writeError(w, 500, "Не все значения удалось восстановить: "+err.Error())
+		return
+	}
+	if _, wallpaper, exists, _ := regGet(`HKCU\Control Panel\Desktop`, "Wallpaper"); exists && wallpaper != "" {
+		if err := refreshWallpaper(wallpaper); err != nil {
+			writeError(w, 500, "Значения восстановлены, но не удалось обновить обои: "+err.Error())
 			return
 		}
-		n++
 	}
-	a.backup = backupFile{Created: time.Now(), Values: map[string]backupValue{}}
-	if _, wallpaper, exists, _ := regGet(`HKCU\Control Panel\Desktop`, "Wallpaper"); exists && wallpaper != "" {
-		_ = refreshWallpaper(wallpaper)
+	if err := os.Remove(a.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		writeError(w, 500, "Значения восстановлены, но не удалось удалить резервную копию: "+err.Error())
+		return
 	}
-	_ = os.Remove(a.backupPath)
-	writeJSON(w, map[string]any{"ok": true, "restored": n})
+	a.backup = backupFile{Created: time.Now(), Values: map[string]backupValue{}, Order: []string{}, OrderKnown: true}
+	writeJSON(w, map[string]any{"ok": true, "restored": len(values)})
 }
 
 func (a *app) handleRestartExplorer(w http.ResponseWriter, _ *http.Request) {
@@ -485,37 +616,60 @@ func (a *app) installWallpaper(data []byte, mime string) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return errors.New("не удалось создать папку программы")
 	}
-	path := filepath.Join(dir, "wallpaper"+ext)
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return errors.New("не удалось сохранить изображение")
+	path := filepath.Join(dir, "wallpaper-"+strconv.FormatInt(time.Now().UnixNano(), 10)+ext)
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return errors.New("не удалось определить полный путь изображения")
 	}
-
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	ops := []operation{
-		{Path: `HKCU\Control Panel\Desktop`, Name: "Wallpaper", Type: "REG_SZ"},
-		{Path: `HKCU\Control Panel\Desktop`, Name: "WallpaperStyle", Type: "REG_SZ"},
-		{Path: `HKCU\Control Panel\Desktop`, Name: "TileWallpaper", Type: "REG_SZ"},
+		{Path: `HKCU\Control Panel\Desktop`, Name: "Wallpaper", Type: "REG_SZ", On: path},
+		{Path: `HKCU\Control Panel\Desktop`, Name: "WallpaperStyle", Type: "REG_SZ", On: "10"},
+		{Path: `HKCU\Control Panel\Desktop`, Name: "TileWallpaper", Type: "REG_SZ", On: "0"},
 	}
-	for _, op := range ops {
-		if err := a.remember(op); err != nil {
+	before := make([]backupValue, len(ops))
+	for i, op := range ops {
+		value, err := readBackupValue(op)
+		if err != nil {
 			return err
 		}
+		before[i] = value
+		a.rememberValue(op, value)
 	}
-	err := regSet(ops[0].Path, ops[0].Name, ops[0].Type, path)
-	if err == nil {
-		err = regSet(ops[1].Path, ops[1].Name, ops[1].Type, "10")
+	if err := a.saveBackup(); err != nil {
+		return err
 	}
-	if err == nil {
-		err = regSet(ops[2].Path, ops[2].Name, ops[2].Type, "0")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return errors.New("не удалось сохранить изображение")
+	}
+	for _, op := range ops {
+		err = applyOperation(op, true)
+		if err == nil {
+			var matches bool
+			matches, err = operationMatches(op, true)
+			if err == nil && !matches {
+				err = errors.New("Windows не подтвердила параметр обоев")
+			}
+		}
+		if err != nil {
+			break
+		}
 	}
 	if err == nil {
 		err = refreshWallpaper(path)
 	}
 	if err != nil {
-		return err
-	}
-	if err = a.saveBackup(); err != nil {
+		rollbackErr := restoreValues(before)
+		if before[0].Existed && before[0].Data != "" {
+			if refreshErr := refreshWallpaper(before[0].Data); refreshErr != nil {
+				rollbackErr = errors.Join(rollbackErr, refreshErr)
+			}
+		}
+		_ = os.Remove(path)
+		if rollbackErr != nil {
+			return fmt.Errorf("%v; автоматический откат: %w", err, rollbackErr)
+		}
 		return err
 	}
 	return nil
@@ -576,12 +730,16 @@ func regGet(path, name string) (typ, data string, exists bool, err error) {
 		return "", "", false, nil
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		for i, f := range fields {
-			if strings.HasPrefix(f, "REG_") {
-				return f, strings.Join(fields[i+1:], " "), true, nil
-			}
+		index := strings.Index(line, "REG_")
+		if index < 0 {
+			continue
 		}
+		rest := line[index:]
+		end := strings.IndexAny(rest, " \t\r")
+		if end < 0 {
+			return rest, "", true, nil
+		}
+		return rest[:end], strings.TrimSpace(rest[end:]), true, nil
 	}
 	return "", "", false, nil
 }
@@ -617,17 +775,6 @@ func regDelete(path, name string) error {
 	}
 	args = append(args, "/f")
 	out, err := exec.Command("reg.exe", args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s", cleanOutput(out))
-	}
-	return nil
-}
-
-func regDeleteKey(path string) error {
-	if err := exec.Command("reg.exe", "query", path).Run(); err != nil {
-		return nil
-	}
-	out, err := exec.Command("reg.exe", "delete", path, "/f").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s", cleanOutput(out))
 	}
