@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -23,7 +24,7 @@ import (
 
 const (
 	appName    = "Win11 Customizer"
-	appVersion = "1.1.0"
+	appVersion = "1.2.0"
 )
 
 //go:embed web/*
@@ -91,6 +92,10 @@ var tweaks = []tweak{
 	{ID: "hide-widgets", Category: "taskbar", Title: "Скрыть виджеты", Description: "Убирает кнопку новостей и виджетов с панели задач.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarDa", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "hide-chat", Category: "taskbar", Title: "Скрыть Чат / Teams", Description: "Убирает кнопку чата с панели задач на поддерживаемых сборках.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarMn", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "taskbar-end-task", Category: "taskbar", Title: "«Завершить задачу» в панели", Description: "Добавляет завершение приложения в контекстное меню его значка.", Risk: "safe", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings`, Name: "TaskbarEndTask", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "hide-task-view", Category: "taskbar", Title: "Скрыть представление задач", Description: "Убирает кнопку виртуальных рабочих столов с панели задач.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowTaskViewButton", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "never-combine", Category: "taskbar", Title: "Не объединять кнопки", Description: "Показывает отдельную кнопку и подпись для каждого окна на поддерживаемых версиях Windows 11.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarGlomLevel", Type: "REG_DWORD", On: "2", Off: str("0")}}},
+	{ID: "small-taskbar", Category: "taskbar", Title: "Компактная панель задач", Description: "Уменьшает значки панели задач. На новых сборках Windows параметр может игнорироваться.", Risk: "medium", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarSi", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "hide-copilot", Category: "taskbar", Title: "Скрыть Copilot", Description: "Убирает кнопку Copilot с панели задач, если она присутствует в вашей сборке.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowCopilotButton", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "show-extensions", Category: "explorer", Title: "Показывать расширения файлов", Description: "Показывает .exe, .jpg и другие расширения — полезно и безопаснее.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "HideFileExt", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "show-hidden", Category: "explorer", Title: "Показывать скрытые файлы", Description: "Отображает скрытые элементы в Проводнике (системные защищённые файлы остаются скрыты).", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "Hidden", Type: "REG_DWORD", On: "1", Off: str("2")}}},
 	{ID: "compact-explorer", Category: "explorer", Title: "Компактный вид Проводника", Description: "Уменьшает вертикальные отступы между файлами.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "UseCompactMode", Type: "REG_DWORD", On: "1", Off: str("0")}}},
@@ -205,6 +210,7 @@ func (a *app) routes(mux *http.ServeMux, token string) {
 	mux.HandleFunc("POST /api/restore", auth(a.handleRestore))
 	mux.HandleFunc("POST /api/restart-explorer", auth(a.handleRestartExplorer))
 	mux.HandleFunc("POST /api/restore-point", auth(a.handleRestorePoint))
+	mux.HandleFunc("POST /api/wallpaper", auth(a.handleWallpaper))
 	mux.HandleFunc("GET /api/export", auth(a.handleExport))
 }
 
@@ -344,6 +350,9 @@ func (a *app) handleRestore(w http.ResponseWriter, _ *http.Request) {
 		n++
 	}
 	a.backup = backupFile{Created: time.Now(), Values: map[string]backupValue{}}
+	if _, wallpaper, exists, _ := regGet(`HKCU\Control Panel\Desktop`, "Wallpaper"); exists && wallpaper != "" {
+		_ = refreshWallpaper(wallpaper)
+	}
 	_ = os.Remove(a.backupPath)
 	writeJSON(w, map[string]any{"ok": true, "restored": n})
 }
@@ -370,6 +379,91 @@ func (a *app) handleRestorePoint(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (a *app) handleWallpaper(w http.ResponseWriter, r *http.Request) {
+	const maxWallpaperSize = 15 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxWallpaperSize+(1<<20))
+	file, _, err := r.FormFile("wallpaper")
+	if err != nil {
+		writeError(w, 400, "Выберите изображение JPEG, PNG или BMP")
+		return
+	}
+	defer file.Close()
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxWallpaperSize+1))
+	if err != nil || len(data) == 0 {
+		writeError(w, 400, "Не удалось прочитать изображение")
+		return
+	}
+	if len(data) > maxWallpaperSize {
+		writeError(w, 413, "Размер изображения не должен превышать 15 МБ")
+		return
+	}
+	mime := http.DetectContentType(data)
+	ext := map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/bmp": ".bmp"}[mime]
+	if ext == "" {
+		writeError(w, 415, "Поддерживаются только JPEG, PNG и BMP")
+		return
+	}
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "Win11Customizer")
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		writeError(w, 500, "Не удалось создать папку программы")
+		return
+	}
+	path := filepath.Join(dir, "wallpaper"+ext)
+	if err = os.WriteFile(path, data, 0600); err != nil {
+		writeError(w, 500, "Не удалось сохранить изображение")
+		return
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ops := []operation{
+		{Path: `HKCU\Control Panel\Desktop`, Name: "Wallpaper", Type: "REG_SZ"},
+		{Path: `HKCU\Control Panel\Desktop`, Name: "WallpaperStyle", Type: "REG_SZ"},
+		{Path: `HKCU\Control Panel\Desktop`, Name: "TileWallpaper", Type: "REG_SZ"},
+	}
+	for _, op := range ops {
+		if err = a.remember(op); err != nil {
+			writeError(w, 500, err.Error())
+			return
+		}
+	}
+	if err = regSet(ops[0].Path, ops[0].Name, ops[0].Type, path); err == nil {
+		err = regSet(ops[1].Path, ops[1].Name, ops[1].Type, "10")
+	}
+	if err == nil {
+		err = regSet(ops[2].Path, ops[2].Name, ops[2].Type, "0")
+	}
+	if err == nil {
+		err = refreshWallpaper(path)
+	}
+	if err != nil {
+		writeError(w, 500, "Не удалось применить обои: "+err.Error())
+		return
+	}
+	if err = a.saveBackup(); err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "mime": mime})
+}
+
+func refreshWallpaper(path string) error {
+	safePath := strings.ReplaceAll(path, "'", "''")
+	script := `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class WallpaperNative { [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool SystemParametersInfo(int a,int b,string c,int d); }'; if (-not [WallpaperNative]::SystemParametersInfo(20,0,'` + safePath + `',3)) { exit 1 }`
+	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", cleanOutput(out))
+	}
+	return nil
 }
 
 func (a *app) handleExport(w http.ResponseWriter, _ *http.Request) {
