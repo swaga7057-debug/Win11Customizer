@@ -52,6 +52,7 @@ async function load() {
     const active = state.tweaks.filter(x=>x.enabled).length;
     $('#score').textContent = active;
     render();
+    renderTaskbarDrawer();
   } catch(e) { $('#grid').innerHTML = `<div class="empty">Не удалось прочитать параметры: ${esc(e.message)}</div>`; toast(e.message,true); }
 }
 
@@ -72,6 +73,16 @@ function render() {
   $$('.switch input').forEach(input => input.onchange = () => requestToggle(input));
 }
 
+function renderTaskbarDrawer() {
+  if (!state) return;
+  const list = state.tweaks.filter(t => t.category === 'taskbar');
+  $('#taskbarQuickList').innerHTML = list.map(t => `<div class="drawer-item">
+    <span>▰</span><div><b>${esc(t.title)}</b><small>${esc(t.description)}</small></div>
+    <label class="switch"><input type="checkbox" data-id="${t.id}" ${t.enabled?'checked':''} ${busy?'disabled':''}><span class="slider"></span></label>
+  </div>`).join('');
+  $$('#taskbarQuickList .switch input').forEach(input => input.onchange = () => requestToggle(input));
+}
+
 async function requestToggle(input) {
   const t = state.tweaks.find(x=>x.id===input.dataset.id), enabled=input.checked;
   input.checked = !enabled;
@@ -85,13 +96,13 @@ async function requestToggle(input) {
 }
 
 function restartText(v){ return v==='explorer'?' · нужен перезапуск Проводника':v==='signout'?' · потребуется выход из системы':v==='reboot'?' · потребуется перезагрузка':''; }
-function setBusy(v){ busy=v; render(); $$('#recommendedBtn,#restoreBtn,#restartBtn,#restorePointBtn,#chooseWallpaperBtn,#applyWallpaperBtn').forEach(x=>x.disabled=v);if(!v&&$('#applyWallpaperBtn'))$('#applyWallpaperBtn').disabled=!$('#wallpaperInput').files[0]; }
+function setBusy(v){ busy=v; render(); renderTaskbarDrawer(); $$('#recommendedBtn,#restoreBtn,#restartBtn,#restorePointBtn,#chooseWallpaperBtn,#applyWallpaperBtn,#drawerRestartBtn,.online-wallpaper').forEach(x=>x.disabled=v);if(!v&&$('#applyWallpaperBtn'))$('#applyWallpaperBtn').disabled=!$('#wallpaperInput').files[0]; }
 function esc(s=''){ return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 let toastTimer; function toast(msg,error=false){ const t=$('#toast'); t.textContent=msg;t.className='toast show'+(error?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='toast',3600); }
 function confirmBox(title,text,fn){ $('#modalTitle').textContent=title;$('#modalText').textContent=text;$('#modalWrap').hidden=false;$('#modalConfirm').onclick=()=>{$('#modalWrap').hidden=true;fn();}; }
 
 function setTheme(name) {
-  const theme = ['ocean','aurora','sunset','midnight'].includes(name) ? name : 'ocean';
+  const theme = ['ocean','aurora','sunset','midnight','liquid'].includes(name) ? name : 'ocean';
   document.documentElement.dataset.theme = theme;
   localStorage.setItem('w11-theme', theme);
   $$('.theme-card').forEach(x => x.classList.toggle('active', x.dataset.theme === theme));
@@ -115,6 +126,12 @@ function bind() {
   $('#wallpaperBox').ondrop=e=>{e.preventDefault();e.currentTarget.classList.remove('drag');if(e.dataTransfer.files[0]){input.files=e.dataTransfer.files;input.onchange();}};
   input.onchange=()=>{const file=input.files[0];if(!file)return;if(file.size>15*1024*1024){toast('Файл больше 15 МБ',true);input.value='';return;}const url=URL.createObjectURL(file);preview.style.backgroundImage=`url("${url}")`;preview.classList.add('has-image');apply.disabled=false;};
   apply.onclick=async()=>{const file=input.files[0];if(!file)return;const form=new FormData();form.append('wallpaper',file);setBusy(true);try{await api('wallpaper',{method:'POST',body:form});toast('Обои Windows установлены');await load();}catch(e){toast(e.message,true)}finally{setBusy(false);apply.disabled=!input.files[0];}};
+  $$('.online-wallpaper').forEach(b=>b.onclick=()=>confirmBox('Установить обои',`Скачать стиль «${b.textContent.trim()}» из Unsplash и установить как фон Windows?`,async()=>{setBusy(true);try{await api('wallpaper/catalog',{method:'POST',body:JSON.stringify({id:b.dataset.wallpaper})});toast('Интернет-обои установлены');await load();}catch(e){toast(e.message,true)}finally{setBusy(false)}}));
+  const drawer=$('#taskbarDrawer'), shade=$('#drawerShade');
+  const openDrawer=()=>{drawer.classList.add('open');shade.classList.add('open');renderTaskbarDrawer()};
+  const closeDrawer=()=>{drawer.classList.remove('open');shade.classList.remove('open')};
+  $('#taskbarDrawerBtn').onclick=openDrawer;$('#closeTaskbarDrawer').onclick=closeDrawer;shade.onclick=closeDrawer;
+  $('#drawerRestartBtn').onclick=()=>$('#restartBtn').click();
 }
 
 initNav(); bind(); setTheme(localStorage.getItem('w11-theme')||'ocean'); updateHeading(); updateClock(); setInterval(updateClock, 10000); load();
