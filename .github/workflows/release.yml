@@ -1,7 +1,14 @@
 name: Build Windows release
-# Release build for version 1.3.0.
+# Release build for version 1.3.1.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "web/**"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:
@@ -28,12 +35,12 @@ jobs:
 
       - name: Package
         shell: pwsh
-        run: Compress-Archive -Path Win11Customizer.exe,README.md -DestinationPath Win11Customizer-1.3.0-Windows-x64.zip -Force
+        run: Compress-Archive -Path Win11Customizer.exe,README.md -DestinationPath Win11Customizer-1.3.1-Windows-x64.zip -Force
 
       - name: Publish release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete v1.3.0 --cleanup-tag --yes 2>$null
-          gh release create v1.3.0 Win11Customizer-1.3.0-Windows-x64.zip --title "Win11 Customizer 1.3.0" --notes "Выдвижная панель быстрых настроек, тема Liquid Glass, расширенная настройка панели задач и каталог интернет-обоев разных стилей."
+          gh release delete v1.3.1 --cleanup-tag --yes 2>$null
+          gh release create v1.3.1 Win11Customizer-1.3.1-Windows-x64.zip --title "Win11 Customizer 1.3.1" --notes "Увеличенный и более читаемый интерфейс: крупные шрифты, карточки, кнопки, переключатели, меню и выдвижная панель."
