@@ -24,7 +24,7 @@ import (
 
 const (
 	appName    = "Win11 Customizer"
-	appVersion = "1.2.0"
+	appVersion = "1.3.0"
 )
 
 //go:embed web/*
@@ -96,6 +96,11 @@ var tweaks = []tweak{
 	{ID: "never-combine", Category: "taskbar", Title: "Не объединять кнопки", Description: "Показывает отдельную кнопку и подпись для каждого окна на поддерживаемых версиях Windows 11.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarGlomLevel", Type: "REG_DWORD", On: "2", Off: str("0")}}},
 	{ID: "small-taskbar", Category: "taskbar", Title: "Компактная панель задач", Description: "Уменьшает значки панели задач. На новых сборках Windows параметр может игнорироваться.", Risk: "medium", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarSi", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "hide-copilot", Category: "taskbar", Title: "Скрыть Copilot", Description: "Убирает кнопку Copilot с панели задач, если она присутствует в вашей сборке.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowCopilotButton", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "taskbar-badges", Category: "taskbar", Title: "Значки уведомлений", Description: "Показывает счётчики и индикаторы активности на кнопках панели задач.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarBadges", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "all-tray-icons", Category: "taskbar", Title: "Все значки в трее", Description: "Не прячет фоновые приложения за стрелкой в области уведомлений.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer`, Name: "EnableAutoTray", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "taskbar-accent", Category: "taskbar", Title: "Акцентный цвет панели", Description: "Применяет выбранный цвет Windows к меню Пуск и панели задач.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, Name: "ColorPrevalence", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "multi-monitor-taskbar", Category: "taskbar", Title: "Панель на всех мониторах", Description: "Показывает панель задач на каждом подключённом дисплее.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "MMTaskbarEnabled", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "disable-recent", Category: "taskbar", Title: "Скрыть недавние документы", Description: "Не показывает историю документов в списках переходов приложений.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "Start_TrackDocs", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "show-extensions", Category: "explorer", Title: "Показывать расширения файлов", Description: "Показывает .exe, .jpg и другие расширения — полезно и безопаснее.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "HideFileExt", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "show-hidden", Category: "explorer", Title: "Показывать скрытые файлы", Description: "Отображает скрытые элементы в Проводнике (системные защищённые файлы остаются скрыты).", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "Hidden", Type: "REG_DWORD", On: "1", Off: str("2")}}},
 	{ID: "compact-explorer", Category: "explorer", Title: "Компактный вид Проводника", Description: "Уменьшает вертикальные отступы между файлами.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "UseCompactMode", Type: "REG_DWORD", On: "1", Off: str("0")}}},
@@ -187,7 +192,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https://images.unsplash.com; connect-src 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -211,6 +216,7 @@ func (a *app) routes(mux *http.ServeMux, token string) {
 	mux.HandleFunc("POST /api/restart-explorer", auth(a.handleRestartExplorer))
 	mux.HandleFunc("POST /api/restore-point", auth(a.handleRestorePoint))
 	mux.HandleFunc("POST /api/wallpaper", auth(a.handleWallpaper))
+	mux.HandleFunc("POST /api/wallpaper/catalog", auth(a.handleCatalogWallpaper))
 	mux.HandleFunc("GET /api/export", auth(a.handleExport))
 }
 
@@ -403,24 +409,85 @@ func (a *app) handleWallpaper(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mime := http.DetectContentType(data)
+	if err = a.installWallpaper(data, mime); err != nil {
+		writeError(w, 500, "Не удалось применить обои: "+err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "mime": mime})
+}
+
+var wallpaperCatalog = map[string]string{
+	"ocean":     "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=2560&q=90",
+	"mountains": "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=2560&q=90",
+	"forest":    "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=2560&q=90",
+	"city":      "https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=2560&q=90",
+	"space":     "https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?auto=format&fit=crop&w=2560&q=90",
+	"minimal":   "https://images.unsplash.com/photo-1557682250-33bd709cbe85?auto=format&fit=crop&w=2560&q=90",
+}
+
+func (a *app) handleCatalogWallpaper(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil {
+		writeError(w, 400, "Некорректный запрос")
+		return
+	}
+	address, ok := wallpaperCatalog[req.ID]
+	if !ok {
+		writeError(w, 404, "Обои не найдены")
+		return
+	}
+	client := &http.Client{
+		Timeout: 35 * time.Second,
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			if next.URL.Hostname() != "images.unsplash.com" || len(via) > 4 {
+				return errors.New("недопустимое перенаправление")
+			}
+			return nil
+		},
+	}
+	request, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, address, nil)
+	request.Header.Set("User-Agent", "Win11Customizer/1.3")
+	response, err := client.Do(request)
+	if err != nil {
+		writeError(w, 502, "Не удалось скачать обои. Проверьте интернет")
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		writeError(w, 502, fmt.Sprintf("Сервер обоев ответил %d", response.StatusCode))
+		return
+	}
+	const maxDownload = 20 << 20
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxDownload+1))
+	if err != nil || len(data) == 0 || len(data) > maxDownload {
+		writeError(w, 502, "Получено повреждённое или слишком большое изображение")
+		return
+	}
+	if err = a.installWallpaper(data, http.DetectContentType(data)); err != nil {
+		writeError(w, 500, "Не удалось применить обои: "+err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "id": req.ID})
+}
+
+func (a *app) installWallpaper(data []byte, mime string) error {
 	ext := map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/bmp": ".bmp"}[mime]
 	if ext == "" {
-		writeError(w, 415, "Поддерживаются только JPEG, PNG и BMP")
-		return
+		return errors.New("поддерживаются только JPEG, PNG и BMP")
 	}
 	base := os.Getenv("LOCALAPPDATA")
 	if base == "" {
 		base = os.TempDir()
 	}
 	dir := filepath.Join(base, "Win11Customizer")
-	if err = os.MkdirAll(dir, 0700); err != nil {
-		writeError(w, 500, "Не удалось создать папку программы")
-		return
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return errors.New("не удалось создать папку программы")
 	}
 	path := filepath.Join(dir, "wallpaper"+ext)
-	if err = os.WriteFile(path, data, 0600); err != nil {
-		writeError(w, 500, "Не удалось сохранить изображение")
-		return
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return errors.New("не удалось сохранить изображение")
 	}
 
 	a.mu.Lock()
@@ -431,12 +498,12 @@ func (a *app) handleWallpaper(w http.ResponseWriter, r *http.Request) {
 		{Path: `HKCU\Control Panel\Desktop`, Name: "TileWallpaper", Type: "REG_SZ"},
 	}
 	for _, op := range ops {
-		if err = a.remember(op); err != nil {
-			writeError(w, 500, err.Error())
-			return
+		if err := a.remember(op); err != nil {
+			return err
 		}
 	}
-	if err = regSet(ops[0].Path, ops[0].Name, ops[0].Type, path); err == nil {
+	err := regSet(ops[0].Path, ops[0].Name, ops[0].Type, path)
+	if err == nil {
 		err = regSet(ops[1].Path, ops[1].Name, ops[1].Type, "10")
 	}
 	if err == nil {
@@ -446,14 +513,12 @@ func (a *app) handleWallpaper(w http.ResponseWriter, r *http.Request) {
 		err = refreshWallpaper(path)
 	}
 	if err != nil {
-		writeError(w, 500, "Не удалось применить обои: "+err.Error())
-		return
+		return err
 	}
 	if err = a.saveBackup(); err != nil {
-		writeError(w, 500, err.Error())
-		return
+		return err
 	}
-	writeJSON(w, map[string]any{"ok": true, "mime": mime})
+	return nil
 }
 
 func refreshWallpaper(path string) error {
