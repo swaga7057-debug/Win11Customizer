@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Win11 Customizer</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="backdrop"><i></i><i></i><i></i></div>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="logo">W</span><div><b>Win11</b><small>Customizer</small></div></div>
+      <nav id="nav"></nav>
+      <div class="aside-foot">
+        <button class="ghost full" id="exportBtn">Экспорт копии</button>
+        <span id="version">Версия —</span>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div><p class="eyebrow" id="eyebrow">ОБЗОР</p><h1 id="pageTitle">Моя Windows</h1></div>
+        <div class="status"><span class="dot"></span><span id="adminState">Проверка…</span></div>
+      </header>
+
+      <section class="hero" id="hero">
+        <div>
+          <span class="pill">WINDOWS 11</span>
+          <h2>Сделайте систему<br><em>действительно своей</em></h2>
+          <p>Настройте внешний вид, Проводник, приватность и игровой режим. Каждое исходное значение сохраняется для отката.</p>
+          <div class="hero-actions">
+            <button class="primary" id="recommendedBtn">Применить рекомендуемые</button>
+            <button class="secondary" id="restorePointBtn">Создать точку восстановления</button>
+          </div>
+        </div>
+        <div class="orb"><span id="score">0</span><small>настроек активно</small></div>
+      </section>
+
+      <section class="toolbar">
+        <div class="search"><span>⌕</span><input id="search" placeholder="Найти настройку…" autocomplete="off"></div>
+        <div class="filters"><button class="chip active" data-filter="all">Все</button><button class="chip" data-filter="recommended">Рекомендуемые</button><button class="chip" data-filter="enabled">Активные</button></div>
+      </section>
+
+      <section class="content">
+        <div class="section-head"><div><h3 id="sectionTitle">Все настройки</h3><p id="sectionDesc">Безопасные изменения Windows 11</p></div><span id="count"></span></div>
+        <div class="grid" id="grid"><div class="loading">Читаю параметры Windows…</div></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="bottom-bar">
+    <div><b id="backupText">Резервная копия пуста</b><small>Исходные значения сохраняются автоматически</small></div>
+    <div><button class="ghost" id="restartBtn">Перезапустить Проводник</button><button class="danger" id="restoreBtn">Откатить изменения</button></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <div class="modal-wrap" id="modalWrap" hidden>
+    <div class="modal"><span class="modal-icon" id="modalIcon">!</span><h3 id="modalTitle"></h3><p id="modalText"></p><div class="modal-actions"><button class="ghost" id="modalCancel">Отмена</button><button class="primary" id="modalConfirm">Продолжить</button></div></div>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
+
