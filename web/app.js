@@ -22,8 +22,14 @@ async function api(path, opts={}) {
 }
 
 function initNav() {
-  $('#nav').innerHTML = Object.entries(categories).map(([id,c]) => `<button class="nav-item ${id==='all'?'active':''}" data-cat="${id}"><span class="ico">${c.icon}</span>${c.nav}</button>`).join('');
-  $$('.nav-item').forEach(b => b.onclick = () => { activeCategory=b.dataset.cat; $$('.nav-item').forEach(x=>x.classList.toggle('active',x===b)); updateHeading(); render(); });
+  $('#nav').innerHTML = Object.entries(categories).map(([id,c]) => `<button class="nav-item ${id==='all'?'active':''}" data-cat="${id}" aria-label="${c.nav}"><span class="ico">${c.icon}</span><span class="nav-label">${c.nav}</span></button>`).join('');
+  $$('.nav-item').forEach(b => b.onclick = () => { activeCategory=b.dataset.cat; $$('.nav-item').forEach(x=>x.classList.toggle('active',x===b)); updateHeading(); render(); $('#workspace').scrollIntoView({behavior:'smooth',block:'start'}); });
+}
+
+function updateClock() {
+  const now = new Date();
+  $('#clock').textContent = now.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+  $('#date').textContent = now.toLocaleDateString('ru-RU', {weekday:'long', day:'numeric', month:'long'});
 }
 
 function updateHeading() {
@@ -39,7 +45,7 @@ async function load() {
     state = await api('state');
     $('#version').textContent = `Версия ${state.version}`;
     $('#adminState').textContent = state.admin ? 'Администратор' : 'Обычный режим';
-    $('.status .dot').style.background = state.admin ? 'var(--green)' : '#f6bd55';
+    $('.status-dot').style.background = state.admin ? 'var(--green)' : '#f6bd55';
     $('#backupText').textContent = state.backupCount ? `Сохранено исходных значений: ${state.backupCount}` : 'Резервная копия пуста';
     const active = state.tweaks.filter(x=>x.enabled).length;
     $('#score').textContent = active;
@@ -94,5 +100,5 @@ function bind() {
   $('#exportBtn').onclick=async()=>{try{const r=await fetch('/api/export',{headers:{'X-Customizer-Token':TOKEN}});if(!r.ok)throw new Error('Не удалось экспортировать');const b=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='win11-customizer-backup.json';a.click();URL.revokeObjectURL(a.href);}catch(e){toast(e.message,true)}};
 }
 
-initNav(); bind(); updateHeading(); load();
+initNav(); bind(); updateHeading(); updateClock(); setInterval(updateClock, 10000); load();
 
