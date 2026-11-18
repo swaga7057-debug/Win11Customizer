@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEqualRegistryDWORD(t *testing.T) {
 	for _, tc := range []struct{ got, want string }{
@@ -39,5 +42,21 @@ func TestFindTweak(t *testing.T) {
 	}
 	if _, ok := findTweak("does-not-exist"); ok {
 		t.Fatal("unknown tweak found")
+	}
+}
+
+func TestSettingsPagesUseAllowlistedWindowsURIs(t *testing.T) {
+	if len(settingsPages) < 8 {
+		t.Fatalf("expected a useful settings catalog, got %d entries", len(settingsPages))
+	}
+	seen := map[string]bool{}
+	for id, uri := range settingsPages {
+		if id == "" || !strings.HasPrefix(uri, "ms-settings:") {
+			t.Fatalf("invalid settings page %q: %q", id, uri)
+		}
+		if seen[uri] {
+			t.Fatalf("duplicate settings URI %q", uri)
+		}
+		seen[uri] = true
 	}
 }
