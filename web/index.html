@@ -44,6 +44,7 @@
             <button class="theme-card" data-theme="aurora" title="Аврора"><i></i><span>Аврора</span></button>
             <button class="theme-card" data-theme="sunset" title="Закат"><i></i><span>Закат</span></button>
             <button class="theme-card" data-theme="midnight" title="Полночь"><i></i><span>Полночь</span></button>
+            <button class="theme-card" data-theme="liquid" title="Liquid Glass"><i></i><span>Liquid</span></button>
           </div>
           <div class="wallpaper-box" id="wallpaperBox">
             <input type="file" id="wallpaperInput" accept="image/jpeg,image/png,image/bmp" hidden>
@@ -51,6 +52,17 @@
             <div class="wallpaper-copy"><b>Обои Windows</b><small>JPEG, PNG или BMP · до 15 МБ</small></div>
             <button class="glass-button" id="chooseWallpaperBtn">Выбрать</button>
             <button class="primary" id="applyWallpaperBtn" disabled>Установить</button>
+          </div>
+          <div class="online-wallpapers">
+            <div class="online-head"><div><b>Обои из интернета</b><small>Выберите стиль — изображение скачается и установится автоматически</small></div><span>Unsplash</span></div>
+            <div class="wallpaper-gallery">
+              <button class="online-wallpaper" data-wallpaper="ocean" style="--photo:url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=600&q=70')"><span>Океан</span></button>
+              <button class="online-wallpaper" data-wallpaper="mountains" style="--photo:url('https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=600&q=70')"><span>Горы</span></button>
+              <button class="online-wallpaper" data-wallpaper="forest" style="--photo:url('https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=600&q=70')"><span>Лес</span></button>
+              <button class="online-wallpaper" data-wallpaper="city" style="--photo:url('https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=600&q=70')"><span>Город</span></button>
+              <button class="online-wallpaper" data-wallpaper="space" style="--photo:url('https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?auto=format&fit=crop&w=600&q=70')"><span>Космос</span></button>
+              <button class="online-wallpaper" data-wallpaper="minimal" style="--photo:url('https://images.unsplash.com/photo-1557682250-33bd709cbe85?auto=format&fit=crop&w=600&q=70')"><span>Минимализм</span></button>
+            </div>
           </div>
         </section>
 
@@ -62,11 +74,20 @@
 
     <aside class="dock-wrap" aria-label="Разделы программы">
       <nav id="nav"></nav><span class="dock-separator"></span>
+      <button class="dock-action taskbar-open" id="taskbarDrawerBtn" title="Быстрые настройки панели задач">▰</button>
       <button class="dock-action" id="restartBtn" title="Перезапустить Проводник">↻</button>
       <button class="dock-action danger-icon" id="restoreBtn" title="Откатить изменения">↶</button>
     </aside>
 
     <div class="backup-pill"><span class="backup-led"></span><div><b id="backupText">Резервная копия пуста</b><small>Исходные значения сохраняются автоматически</small></div><button id="exportBtn">Экспорт</button></div>
+
+    <div class="drawer-shade" id="drawerShade"></div>
+    <aside class="taskbar-drawer" id="taskbarDrawer" aria-label="Быстрые настройки панели задач">
+      <div class="drawer-head"><div><span>БЫСТРАЯ ПАНЕЛЬ</span><h3>Панель задач</h3></div><button id="closeTaskbarDrawer" aria-label="Закрыть">×</button></div>
+      <p>Настройте внешний вид и поведение панели, не переходя в параметры Windows.</p>
+      <div class="drawer-list" id="taskbarQuickList"></div>
+      <button class="drawer-restart" id="drawerRestartBtn">↻ Применить и перезапустить Проводник</button>
+    </aside>
   </div>
 
   <div class="toast" id="toast"></div>
