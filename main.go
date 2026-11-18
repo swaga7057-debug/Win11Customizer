@@ -23,7 +23,7 @@ import (
 
 const (
 	appName    = "Win11 Customizer"
-	appVersion = "1.0.0"
+	appVersion = "1.1.0"
 )
 
 //go:embed web/*
