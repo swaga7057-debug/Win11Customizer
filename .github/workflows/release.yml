@@ -2,13 +2,6 @@ name: Build Windows release
 # Final release build for the complete 1.1.0 design update.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**.go"
-      - "go.mod"
-      - "web/**"
-      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 permissions:
