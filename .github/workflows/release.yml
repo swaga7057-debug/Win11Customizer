@@ -1,0 +1,45 @@
+name: Build Windows release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "web/**"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.4"
+          cache: false
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -buildvcs=false -trimpath -ldflags="-s -w -H=windowsgui" -o Win11Customizer.exe .
+
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path Win11Customizer.exe,README.md -DestinationPath Win11Customizer-1.0.0-Windows-x64.zip -Force
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete v1.0.0 --cleanup-tag --yes 2>$null
+          gh release create v1.0.0 Win11Customizer-1.0.0-Windows-x64.zip --title "Win11 Customizer 1.0.0" --notes "Первая публичная версия Win11 Customizer для Windows 11 x64."
