@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"syscall"
 	"unsafe"
 )
@@ -11,18 +12,22 @@ import (
 var shellExecuteW = syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW")
 
 func launchSettings(uri string) error {
+	return shellOpen(uri)
+}
+
+func shellOpen(target string) error {
 	verb, err := syscall.UTF16PtrFromString("open")
 	if err != nil {
 		return err
 	}
-	target, err := syscall.UTF16PtrFromString(uri)
+	targetPointer, err := syscall.UTF16PtrFromString(target)
 	if err != nil {
 		return err
 	}
 	result, _, callErr := shellExecuteW.Call(
 		0,
 		uintptr(unsafe.Pointer(verb)),
-		uintptr(unsafe.Pointer(target)),
+		uintptr(unsafe.Pointer(targetPointer)),
 		0,
 		0,
 		1,
@@ -31,4 +36,8 @@ func launchSettings(uri string) error {
 		return fmt.Errorf("ShellExecuteW: код %d: %v", result, callErr)
 	}
 	return nil
+}
+
+func launchScreenSaverSettings() error {
+	return exec.Command("control.exe", "desk.cpl,,1").Start()
 }
