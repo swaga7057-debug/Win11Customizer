@@ -47,9 +47,9 @@
             <button class="theme-card" data-theme="liquid" title="Liquid Glass"><i></i><span>Liquid</span></button>
           </div>
           <div class="wallpaper-box" id="wallpaperBox">
-            <input type="file" id="wallpaperInput" accept="image/jpeg,image/png,image/bmp" hidden>
+            <input type="file" id="wallpaperInput" accept="image/jpeg,image/png,image/bmp,.theme,.themepack,.deskthemepack" hidden>
             <div class="wallpaper-preview" id="wallpaperPreview"><span>▧</span></div>
-            <div class="wallpaper-copy"><b>Обои Windows</b><small>JPEG, PNG или BMP · до 15 МБ</small></div>
+            <div class="wallpaper-copy"><b>Обои или тема Windows</b><small>JPEG/PNG/BMP до 15 МБ · темы до 50 МБ</small></div>
             <button class="glass-button" id="chooseWallpaperBtn">Выбрать</button>
             <button class="primary" id="applyWallpaperBtn" disabled>Установить</button>
           </div>
@@ -82,6 +82,13 @@
             <button class="tool-card" data-settings="startup"><i>↥</i><span><b>Автозагрузка</b><small>Запуск вместе с Windows</small></span><em>›</em></button>
             <button class="tool-card" data-settings="storage"><i>▤</i><span><b>Хранилище</b><small>Место и очистка диска</small></span><em>›</em></button>
             <button class="tool-card" data-settings="accessibility"><i>◉</i><span><b>Размер текста</b><small>Специальные возможности</small></span><em>›</em></button>
+            <button class="tool-card" data-settings="visual-effects"><i>✧</i><span><b>Визуальные эффекты</b><small>Анимация и прозрачность</small></span><em>›</em></button>
+            <button class="tool-card" data-settings="mouse-pointer"><i>➤</i><span><b>Курсор</b><small>Размер и цвет указателя</small></span><em>›</em></button>
+            <button class="tool-card" data-settings="mouse"><i>⌁</i><span><b>Мышь</b><small>Кнопки и прокрутка</small></span><em>›</em></button>
+            <button class="tool-card" data-settings="fonts"><i>А</i><span><b>Шрифты</b><small>Установка и управление</small></span><em>›</em></button>
+            <button class="tool-card" data-settings="lockscreen"><i>▣</i><span><b>Экран блокировки</b><small>Фон и состояние</small></span><em>›</em></button>
+            <button class="tool-card" data-settings="screensaver"><i>◫</i><span><b>Заставка</b><small>Таймер и защита экрана</small></span><em>›</em></button>
+            <button class="tool-card" data-action="logs"><i>≡</i><span><b>Журнал</b><small>Скачать подробный отчёт</small></span><em>›</em></button>
             <button class="tool-card" data-settings="update"><i>↻</i><span><b>Обновления</b><small>Windows Update</small></span><em>›</em></button>
           </div>
         </section>
@@ -99,7 +106,7 @@
       <button class="dock-action danger-icon" id="restoreBtn" title="Откатить изменения">↶</button>
     </aside>
 
-    <div class="backup-pill"><span class="backup-led"></span><div><b id="backupText">Резервная копия пуста</b><small>Исходные значения сохраняются автоматически</small></div><button id="exportBtn">Экспорт</button></div>
+    <div class="backup-pill"><span class="backup-led"></span><div><b id="backupText">Резервная копия пуста</b><small>Исходные значения сохраняются автоматически</small></div><input type="file" id="profileInput" accept="application/json,.json" hidden><button id="importProfileBtn">Импорт</button><button id="profileExportBtn">Профиль</button><button id="exportBtn">Экспорт</button></div>
 
     <div class="drawer-shade" id="drawerShade"></div>
     <aside class="taskbar-drawer" id="taskbarDrawer" aria-label="Быстрые настройки панели задач">
