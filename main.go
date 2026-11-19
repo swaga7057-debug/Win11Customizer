@@ -25,31 +25,33 @@ import (
 
 const (
 	appName    = "Win11 Customizer"
-	appVersion = "1.4.0"
+	appVersion = "1.5.0"
 )
 
 //go:embed web/*
 var webFiles embed.FS
 
 type operation struct {
-	Path           string  `json:"-"`
-	Name           string  `json:"-"`
-	Type           string  `json:"-"`
-	On             string  `json:"-"`
-	Off            *string `json:"-"`
-	DeleteKeyOnOff bool    `json:"-"`
+	Path string  `json:"-"`
+	Name string  `json:"-"`
+	Type string  `json:"-"`
+	On   string  `json:"-"`
+	Off  *string `json:"-"`
 }
 
 type tweak struct {
-	ID          string      `json:"id"`
-	Category    string      `json:"category"`
-	Title       string      `json:"title"`
-	Description string      `json:"description"`
-	Risk        string      `json:"risk"`
-	Admin       bool        `json:"admin"`
-	Restart     string      `json:"restart,omitempty"`
-	Recommended bool        `json:"recommended"`
-	Ops         []operation `json:"-"`
+	ID           string      `json:"id"`
+	Category     string      `json:"category"`
+	Title        string      `json:"title"`
+	Description  string      `json:"description"`
+	Risk         string      `json:"risk"`
+	Admin        bool        `json:"admin"`
+	Restart      string      `json:"restart,omitempty"`
+	Recommended  bool        `json:"recommended"`
+	Experimental bool        `json:"experimental,omitempty"`
+	MinBuild     int         `json:"minBuild,omitempty"`
+	MaxBuild     int         `json:"maxBuild,omitempty"`
+	Ops          []operation `json:"-"`
 }
 
 type tweakState struct {
@@ -66,53 +68,56 @@ type backupValue struct {
 	KeyExisted  bool   `json:"keyExisted,omitempty"`
 	Type        string `json:"type,omitempty"`
 	Data        string `json:"data,omitempty"`
-	DeleteKey   bool   `json:"deleteKey,omitempty"`
 	RawType     uint32 `json:"rawType,omitempty"`
 	RawData     string `json:"rawData,omitempty"`
 	RawCaptured bool   `json:"rawCaptured,omitempty"`
 }
 
 type backupFile struct {
-	Created    time.Time              `json:"created"`
-	Values     map[string]backupValue `json:"values"`
-	Order      []string               `json:"order,omitempty"`
-	OrderKnown bool                   `json:"orderKnown"`
+	Created       time.Time              `json:"created"`
+	Values        map[string]backupValue `json:"values"`
+	Order         []string               `json:"order,omitempty"`
+	OrderKnown    bool                   `json:"orderKnown"`
+	ThemeCaptured bool                   `json:"themeCaptured,omitempty"`
+	PreviousTheme string                 `json:"previousTheme,omitempty"`
 }
 
 type app struct {
 	mu         sync.Mutex
 	backupPath string
 	backup     backupFile
+	windows    windowsVersion
+	audit      *auditLogger
 }
 
 func str(v string) *string { return &v }
 
 var tweaks = []tweak{
-	{ID: "dark-mode", Category: "appearance", Title: "Тёмная тема", Description: "Тёмный режим для приложений и системного интерфейса.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{
+	{ID: "dark-mode", Category: "appearance", Title: "Тёмная тема", Description: "Тёмный режим для приложений и системного интерфейса.", Risk: "safe", Recommended: true, Restart: "explorer", Experimental: true, Ops: []operation{
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, Name: "AppsUseLightTheme", Type: "REG_DWORD", On: "0", Off: str("1")},
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, Name: "SystemUsesLightTheme", Type: "REG_DWORD", On: "0", Off: str("1")},
 	}},
-	{ID: "transparency", Category: "appearance", Title: "Эффекты прозрачности", Description: "Включает Acrylic/Mica там, где это поддерживает Windows.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, Name: "EnableTransparency", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "accent-titlebars", Category: "appearance", Title: "Акцентный цвет заголовков", Description: "Показывает выбранный цвет Windows на заголовках и границах окон.", Risk: "safe", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\DWM`, Name: "ColorPrevalence", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "taskbar-left", Category: "taskbar", Title: "Пуск слева", Description: "Выравнивает значки панели задач по левому краю.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarAl", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "hide-search", Category: "taskbar", Title: "Скрыть поиск", Description: "Освобождает место на панели задач; поиск остаётся доступен через меню Пуск.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Search`, Name: "SearchboxTaskbarMode", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "hide-widgets", Category: "taskbar", Title: "Скрыть виджеты", Description: "Убирает кнопку новостей и виджетов с панели задач.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarDa", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "hide-chat", Category: "taskbar", Title: "Скрыть Чат / Teams", Description: "Убирает кнопку чата с панели задач на поддерживаемых сборках.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarMn", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "taskbar-end-task", Category: "taskbar", Title: "«Завершить задачу» в панели", Description: "Добавляет завершение приложения в контекстное меню его значка.", Risk: "safe", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings`, Name: "TaskbarEndTask", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "hide-task-view", Category: "taskbar", Title: "Скрыть представление задач", Description: "Убирает кнопку виртуальных рабочих столов с панели задач.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowTaskViewButton", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "never-combine", Category: "taskbar", Title: "Не объединять кнопки", Description: "Показывает отдельную кнопку и подпись для каждого окна на поддерживаемых версиях Windows 11.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarGlomLevel", Type: "REG_DWORD", On: "2", Off: str("0")}}},
-	{ID: "small-taskbar", Category: "taskbar", Title: "Компактная панель задач", Description: "Уменьшает значки панели задач. На новых сборках Windows параметр может игнорироваться.", Risk: "medium", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarSi", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "hide-copilot", Category: "taskbar", Title: "Скрыть Copilot", Description: "Убирает кнопку Copilot с панели задач, если она присутствует в вашей сборке.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowCopilotButton", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "taskbar-badges", Category: "taskbar", Title: "Значки уведомлений", Description: "Показывает счётчики и индикаторы активности на кнопках панели задач.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarBadges", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "all-tray-icons", Category: "taskbar", Title: "Все значки в трее", Description: "Не прячет фоновые приложения за стрелкой в области уведомлений.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer`, Name: "EnableAutoTray", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "taskbar-accent", Category: "taskbar", Title: "Акцентный цвет панели", Description: "Применяет выбранный цвет Windows к меню Пуск и панели задач.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, Name: "ColorPrevalence", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "multi-monitor-taskbar", Category: "taskbar", Title: "Панель на всех мониторах", Description: "Показывает панель задач на каждом подключённом дисплее.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "MMTaskbarEnabled", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "disable-recent", Category: "taskbar", Title: "Скрыть недавние документы", Description: "Не показывает историю документов в списках переходов приложений.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "Start_TrackDocs", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "transparency", Category: "appearance", Title: "Эффекты прозрачности", Description: "Включает Acrylic/Mica там, где это поддерживает Windows.", Risk: "safe", Restart: "explorer", Experimental: true, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, Name: "EnableTransparency", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "accent-titlebars", Category: "appearance", Title: "Акцентный цвет заголовков", Description: "Показывает выбранный цвет Windows на заголовках и границах окон.", Risk: "safe", Experimental: true, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\DWM`, Name: "ColorPrevalence", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "taskbar-left", Category: "taskbar", Title: "Пуск слева", Description: "Выравнивает значки панели задач по левому краю.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarAl", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "hide-search", Category: "taskbar", Title: "Скрыть поиск", Description: "Освобождает место на панели задач; поиск остаётся доступен через меню Пуск.", Risk: "safe", Recommended: true, Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Search`, Name: "SearchboxTaskbarMode", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "hide-widgets", Category: "taskbar", Title: "Скрыть виджеты", Description: "Убирает кнопку новостей и виджетов с панели задач.", Risk: "safe", Recommended: true, Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarDa", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "hide-chat", Category: "taskbar", Title: "Скрыть Чат / Teams", Description: "Убирает кнопку чата с панели задач на поддерживаемых сборках.", Risk: "safe", Recommended: true, Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarMn", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "taskbar-end-task", Category: "taskbar", Title: "«Завершить задачу» в панели", Description: "Добавляет завершение приложения в контекстное меню его значка.", Risk: "safe", Experimental: true, MinBuild: 22631, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings`, Name: "TaskbarEndTask", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "hide-task-view", Category: "taskbar", Title: "Скрыть представление задач", Description: "Убирает кнопку виртуальных рабочих столов с панели задач.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowTaskViewButton", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "never-combine", Category: "taskbar", Title: "Не объединять кнопки", Description: "Показывает отдельную кнопку и подпись для каждого окна на поддерживаемых версиях Windows 11.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22621, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarGlomLevel", Type: "REG_DWORD", On: "2", Off: str("0")}}},
+	{ID: "small-taskbar", Category: "taskbar", Title: "Компактная панель задач", Description: "Уменьшает значки панели задач. На новых сборках Windows параметр может игнорироваться.", Risk: "medium", Restart: "explorer", Experimental: true, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarSi", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "hide-copilot", Category: "taskbar", Title: "Скрыть Copilot", Description: "Убирает кнопку Copilot с панели задач, если она присутствует в вашей сборке.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22621, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowCopilotButton", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "taskbar-badges", Category: "taskbar", Title: "Значки уведомлений", Description: "Показывает счётчики и индикаторы активности на кнопках панели задач.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "TaskbarBadges", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "all-tray-icons", Category: "taskbar", Title: "Все значки в трее", Description: "Не прячет фоновые приложения за стрелкой в области уведомлений.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer`, Name: "EnableAutoTray", Type: "REG_DWORD", On: "0", Off: str("1")}}},
+	{ID: "taskbar-accent", Category: "taskbar", Title: "Акцентный цвет панели", Description: "Применяет выбранный цвет Windows к меню Пуск и панели задач.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, Name: "ColorPrevalence", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "multi-monitor-taskbar", Category: "taskbar", Title: "Панель на всех мониторах", Description: "Показывает панель задач на каждом подключённом дисплее.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "MMTaskbarEnabled", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "disable-recent", Category: "taskbar", Title: "Скрыть недавние документы", Description: "Не показывает историю документов в списках переходов приложений.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22000, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "Start_TrackDocs", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "show-extensions", Category: "explorer", Title: "Показывать расширения файлов", Description: "Показывает .exe, .jpg и другие расширения — полезно и безопаснее.", Risk: "safe", Recommended: true, Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "HideFileExt", Type: "REG_DWORD", On: "0", Off: str("1")}}},
 	{ID: "show-hidden", Category: "explorer", Title: "Показывать скрытые файлы", Description: "Отображает скрытые элементы в Проводнике (системные защищённые файлы остаются скрыты).", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "Hidden", Type: "REG_DWORD", On: "1", Off: str("2")}}},
 	{ID: "compact-explorer", Category: "explorer", Title: "Компактный вид Проводника", Description: "Уменьшает вертикальные отступы между файлами.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "UseCompactMode", Type: "REG_DWORD", On: "1", Off: str("0")}}},
 	{ID: "disable-ad-id", Category: "privacy", Title: "Отключить рекламный ID", Description: "Запрещает приложениям использовать персональный рекламный идентификатор.", Risk: "safe", Recommended: true, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\AdvertisingInfo`, Name: "Enabled", Type: "REG_DWORD", On: "0", Off: str("1")}}},
-	{ID: "disable-suggestions", Category: "privacy", Title: "Отключить рекомендации и рекламу", Description: "Уменьшает предложения приложений, советы и рекламный контент Windows.", Risk: "safe", Recommended: true, Ops: []operation{
+	{ID: "disable-suggestions", Category: "privacy", Title: "Отключить рекомендации и рекламу", Description: "Уменьшает предложения приложений, советы и рекламный контент Windows.", Risk: "safe", Recommended: true, Experimental: true, Ops: []operation{
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager`, Name: "SubscribedContent-338388Enabled", Type: "REG_DWORD", On: "0", Off: str("1")},
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager`, Name: "SubscribedContent-353694Enabled", Type: "REG_DWORD", On: "0", Off: str("1")},
 		{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager`, Name: "SoftLandingEnabled", Type: "REG_DWORD", On: "0", Off: str("1")},
@@ -138,24 +143,29 @@ var tweaks = []tweak{
 	}},
 	{ID: "menu-delay", Category: "system", Title: "Быстрые меню", Description: "Сокращает задержку появления подменю с 400 до 100 мс.", Risk: "safe", Recommended: true, Restart: "signout", Ops: []operation{{Path: `HKCU\Control Panel\Desktop`, Name: "MenuShowDelay", Type: "REG_SZ", On: "100", Off: str("400")}}},
 	{ID: "long-paths", Category: "system", Title: "Длинные пути Win32", Description: "Разрешает совместимым приложениям работать с путями длиннее 260 символов.", Risk: "safe", Recommended: true, Admin: true, Restart: "reboot", Ops: []operation{{Path: `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`, Name: "LongPathsEnabled", Type: "REG_DWORD", On: "1", Off: str("0")}}},
-	{ID: "seconds-clock", Category: "system", Title: "Секунды в системных часах", Description: "Показывает секунды в часах панели задач; может немного увеличить расход энергии.", Risk: "safe", Restart: "explorer", Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowSecondsInSystemClock", Type: "REG_DWORD", On: "1", Off: str("0")}}},
+	{ID: "seconds-clock", Category: "system", Title: "Секунды в системных часах", Description: "Показывает секунды в часах панели задач; может немного увеличить расход энергии.", Risk: "safe", Restart: "explorer", Experimental: true, MinBuild: 22621, Ops: []operation{{Path: `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced`, Name: "ShowSecondsInSystemClock", Type: "REG_DWORD", On: "1", Off: str("0")}}},
 }
 
 var settingsPages = map[string]string{
-	"personalize":   "ms-settings:personalization",
-	"background":    "ms-settings:personalization-background",
-	"colors":        "ms-settings:personalization-colors",
-	"themes":        "ms-settings:themes",
-	"start":         "ms-settings:personalization-start",
-	"taskbar":       "ms-settings:taskbar",
-	"display":       "ms-settings:display",
-	"sound":         "ms-settings:sound",
-	"bluetooth":     "ms-settings:bluetooth",
-	"apps":          "ms-settings:appsfeatures",
-	"startup":       "ms-settings:startupapps",
-	"storage":       "ms-settings:storagesense",
-	"accessibility": "ms-settings:easeofaccess-display",
-	"update":        "ms-settings:windowsupdate",
+	"personalize":    "ms-settings:personalization",
+	"background":     "ms-settings:personalization-background",
+	"colors":         "ms-settings:personalization-colors",
+	"themes":         "ms-settings:themes",
+	"start":          "ms-settings:personalization-start",
+	"taskbar":        "ms-settings:taskbar",
+	"display":        "ms-settings:display",
+	"sound":          "ms-settings:sound",
+	"bluetooth":      "ms-settings:bluetooth",
+	"apps":           "ms-settings:appsfeatures",
+	"startup":        "ms-settings:startupapps",
+	"storage":        "ms-settings:storagesense",
+	"accessibility":  "ms-settings:easeofaccess-display",
+	"visual-effects": "ms-settings:easeofaccess-visualeffects",
+	"mouse-pointer":  "ms-settings:easeofaccess-mousepointer",
+	"mouse":          "ms-settings:mousetouchpad",
+	"fonts":          "ms-settings:fonts",
+	"lockscreen":     "ms-settings:lockscreen",
+	"update":         "ms-settings:windowsupdate",
 }
 
 func main() {
@@ -178,7 +188,13 @@ func main() {
 			log.Printf("browser: %v", err)
 		}
 	}()
-	server := &http.Server{Handler: securityHeaders(mux), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	server := &http.Server{
+		Handler:           securityHeaders(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
 	log.Printf("%s %s: %s", appName, appVersion, addr)
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
@@ -192,9 +208,14 @@ func newApp() *app {
 	}
 	dir := filepath.Join(base, "Win11Customizer")
 	_ = os.MkdirAll(dir, 0755)
-	a := &app{backupPath: filepath.Join(dir, "backup.json"), backup: backupFile{Created: time.Now(), Values: map[string]backupValue{}, OrderKnown: true}}
+	a := &app{backupPath: filepath.Join(dir, "backup.json"), backup: backupFile{Created: time.Now(), Values: map[string]backupValue{}, OrderKnown: true}, audit: newAuditLogger(filepath.Join(dir, "audit.jsonl"))}
 	if b, err := os.ReadFile(a.backupPath); err == nil {
-		_ = json.Unmarshal(b, &a.backup)
+		if err := json.Unmarshal(b, &a.backup); err != nil {
+			corruptPath := a.backupPath + ".corrupt-" + strconv.FormatInt(time.Now().Unix(), 10)
+			_ = os.Rename(a.backupPath, corruptPath)
+			a.backup = backupFile{Created: time.Now(), Values: map[string]backupValue{}, OrderKnown: true}
+			a.audit.write("backup.load", "error", map[string]any{"error": err.Error(), "preservedAs": corruptPath})
+		}
 	}
 	if a.backup.Values == nil {
 		a.backup.Values = map[string]backupValue{}
@@ -206,9 +227,15 @@ func newApp() *app {
 		}
 		sort.Strings(a.backup.Order)
 	}
-	if len(a.backup.Values) == 0 {
+	if a.backup.ThemeCaptured && !containsString(a.backup.Order, backupThemeMarker) {
+		a.backup.Order = append(a.backup.Order, backupThemeMarker)
+		a.backup.OrderKnown = false
+	}
+	if len(a.backup.Values) == 0 && !a.backup.ThemeCaptured {
 		a.backup.OrderKnown = true
 	}
+	a.windows = detectWindowsVersion()
+	a.audit.write("application.start", "ok", map[string]any{"version": appVersion, "build": a.windows.Build})
 	return a
 }
 
@@ -250,6 +277,11 @@ func (a *app) routes(mux *http.ServeMux, token string) {
 	mux.HandleFunc("POST /api/restore-point", auth(a.handleRestorePoint))
 	mux.HandleFunc("POST /api/wallpaper", auth(a.handleWallpaper))
 	mux.HandleFunc("POST /api/wallpaper/catalog", auth(a.handleCatalogWallpaper))
+	mux.HandleFunc("POST /api/theme", auth(a.handleTheme))
+	mux.HandleFunc("GET /api/profile", auth(a.handleProfileExport))
+	mux.HandleFunc("POST /api/profile/preview", auth(a.handleProfilePreview))
+	mux.HandleFunc("POST /api/profile/apply", auth(a.handleProfileApply))
+	mux.HandleFunc("GET /api/logs", auth(a.handleLogsExport))
 	mux.HandleFunc("POST /api/open-settings", auth(a.handleOpenSettings))
 	mux.HandleFunc("GET /api/export", auth(a.handleExport))
 }
@@ -263,28 +295,42 @@ func (a *app) handleOpenSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uri, ok := settingsPages[req.ID]
-	if !ok {
+	if !ok && req.ID != "screensaver" {
 		writeError(w, http.StatusNotFound, "Раздел параметров не найден")
 		return
 	}
-	if err := launchSettings(uri); err != nil {
+	var err error
+	if req.ID == "screensaver" {
+		err = launchScreenSaverSettings()
+	} else {
+		err = launchSettings(uri)
+	}
+	if err != nil {
+		a.audit.write("settings.open", "error", map[string]any{"id": req.ID, "error": err.Error()})
 		writeError(w, http.StatusInternalServerError, "Не удалось открыть параметры Windows")
 		return
 	}
+	a.audit.write("settings.open", "ok", map[string]any{"id": req.ID})
 	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (a *app) handleState(w http.ResponseWriter, _ *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	states := make([]tweakState, 0, len(tweaks))
 	for _, t := range tweaks {
+		available, compatibilityError := tweakCompatibility(t, a.windows.Build)
 		enabled, err := tweakEnabled(t)
-		s := tweakState{tweak: t, Enabled: enabled, Available: true}
+		s := tweakState{tweak: t, Enabled: enabled, Available: available}
+		if compatibilityError != "" {
+			s.Error = compatibilityError
+		}
 		if err != nil {
 			s.Error = err.Error()
 		}
 		states = append(states, s)
 	}
-	writeJSON(w, map[string]any{"app": appName, "version": appVersion, "windows": windowsInfo(), "admin": isAdmin(), "backupCount": len(a.backup.Values), "backupOrderKnown": a.backup.OrderKnown, "tweaks": states})
+	writeJSON(w, map[string]any{"app": appName, "version": appVersion, "windows": a.windows, "admin": isAdmin(), "backupCount": len(a.backup.Values), "themeBackup": a.backup.ThemeCaptured, "backupOrderKnown": a.backup.OrderKnown, "tweaks": states})
 }
 
 func (a *app) handleApply(w http.ResponseWriter, r *http.Request) {
@@ -305,62 +351,57 @@ func (a *app) handleApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "Для этой настройки перезапустите программу от имени администратора")
 		return
 	}
+	if available, reason := tweakCompatibility(*t, a.windows.Build); !available {
+		writeError(w, 409, reason)
+		return
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.apply(*t, req.Enabled); err != nil {
+		a.audit.write("tweak.apply", "error", map[string]any{"id": t.ID, "enabled": req.Enabled, "error": err.Error()})
 		writeError(w, 500, err.Error())
 		return
 	}
+	a.audit.write("tweak.apply", "ok", map[string]any{"id": t.ID, "enabled": req.Enabled})
 	writeJSON(w, map[string]any{"ok": true, "enabled": req.Enabled, "restart": t.Restart})
 }
 
 func (a *app) handleRecommended(w http.ResponseWriter, _ *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	applied := []string{}
+	profile := profileFile{Schema: profileSchema, Tweaks: map[string]bool{}}
+	applied := make([]string, 0)
 	for _, t := range tweaks {
-		if !t.Recommended || (t.Admin && !isAdmin()) {
+		available, _ := tweakCompatibility(t, a.windows.Build)
+		if !t.Recommended || !available || (t.Admin && !isAdmin()) {
 			continue
 		}
-		if err := a.apply(t, true); err != nil {
-			writeError(w, 500, fmt.Sprintf("%s: %v", t.Title, err))
+		profile.Tweaks[t.ID] = true
+		enabled, err := tweakEnabled(t)
+		if err != nil {
+			writeError(w, 500, err.Error())
 			return
 		}
-		applied = append(applied, t.ID)
+		if !enabled {
+			applied = append(applied, t.ID)
+		}
 	}
+	if _, err := a.applyProfile(profile); err != nil {
+		a.audit.write("recommended.apply", "error", map[string]any{"error": err.Error()})
+		writeError(w, 500, err.Error())
+		return
+	}
+	a.audit.write("recommended.apply", "ok", map[string]any{"applied": len(applied)})
 	writeJSON(w, map[string]any{"ok": true, "applied": applied})
 }
 
 func (a *app) apply(t tweak, enabled bool) error {
-	before := make([]backupValue, len(t.Ops))
-	for i, op := range t.Ops {
-		value, err := readBackupValue(op)
-		if err != nil {
-			return fmt.Errorf("%s: снимок: %w", t.Title, err)
-		}
-		before[i] = value
-		a.rememberValue(op, value)
+	plans := make([]registryPlan, 0, len(t.Ops))
+	for _, op := range t.Ops {
+		plans = append(plans, registryPlan{op: op, enabled: enabled})
 	}
-	// The durable snapshot must exist before the first registry mutation.
-	if err := a.saveBackup(); err != nil {
-		return fmt.Errorf("%s: резервная копия: %w", t.Title, err)
-	}
-	for i, op := range t.Ops {
-		err := applyOperation(op, enabled)
-		if err == nil {
-			var matches bool
-			matches, err = operationMatches(op, enabled)
-			if err == nil && !matches {
-				err = errors.New("Windows не подтвердила новое значение")
-			}
-		}
-		if err != nil {
-			rollbackErr := restoreValues(before[:i+1])
-			if rollbackErr != nil {
-				return fmt.Errorf("%s: %v; автоматический откат: %w", t.Title, err, rollbackErr)
-			}
-			return fmt.Errorf("%s: %w (изменение отменено)", t.Title, err)
-		}
+	if _, err := a.executeRegistryTransaction(plans); err != nil {
+		return fmt.Errorf("%s: %w", t.Title, err)
 	}
 	return nil
 }
@@ -374,7 +415,7 @@ func readBackupValue(op operation) (backupValue, error) {
 	if textErr != nil && exists {
 		return backupValue{}, textErr
 	}
-	return backupValue{Path: op.Path, Name: op.Name, Existed: exists, KeyExisted: keyExists, Type: typ, Data: data, DeleteKey: op.DeleteKeyOnOff, RawType: rawType, RawData: base64.StdEncoding.EncodeToString(raw), RawCaptured: true}, nil
+	return backupValue{Path: op.Path, Name: op.Name, Existed: exists, KeyExisted: keyExists, Type: typ, Data: data, RawType: rawType, RawData: base64.StdEncoding.EncodeToString(raw), RawCaptured: true}, nil
 }
 
 func (a *app) rememberValue(op operation, value backupValue) {
@@ -389,11 +430,6 @@ func (a *app) rememberValue(op operation, value backupValue) {
 func applyOperation(op operation, enabled bool) error {
 	if enabled {
 		return regSet(op.Path, op.Name, op.Type, op.On)
-	}
-	if op.DeleteKeyOnOff {
-		// Removing the whole key could destroy values or subkeys that were not
-		// created by this application. Deleting the controlled value is enough.
-		return regDelete(op.Path, op.Name)
 	}
 	if op.Off == nil {
 		return regDelete(op.Path, op.Name)
@@ -410,7 +446,7 @@ func operationMatches(op operation, enabled bool) (bool, error) {
 	if enabled {
 		return exists && equalRegistry(data, op.On, op.Type), nil
 	}
-	if op.DeleteKeyOnOff || op.Off == nil {
+	if op.Off == nil {
 		return !exists, nil
 	}
 	return exists && equalRegistry(data, *op.Off, op.Type), nil
@@ -456,7 +492,7 @@ func (a *app) saveBackup() error {
 func (a *app) handleRestore(w http.ResponseWriter, _ *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if len(a.backup.Values) == 0 {
+	if len(a.backup.Values) == 0 && !a.backup.ThemeCaptured {
 		writeJSON(w, map[string]any{"ok": true, "restored": 0})
 		return
 	}
@@ -468,39 +504,61 @@ func (a *app) handleRestore(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 	}
-	values := make([]backupValue, 0, len(a.backup.Order))
-	for _, key := range a.backup.Order {
-		v, ok := a.backup.Values[key]
+	order := append([]string(nil), a.backup.Order...)
+	if a.backup.ThemeCaptured && !containsString(order, backupThemeMarker) {
+		// Backups created before v1.5 did not record the theme in the operation order.
+		order = append(order, backupThemeMarker)
+	}
+	restored := 0
+	var restoreErr error
+	for index := len(order) - 1; index >= 0; index-- {
+		key := order[index]
+		if key == backupThemeMarker {
+			if a.backup.PreviousTheme != "" {
+				restoreErr = errors.Join(restoreErr, restoreWindowsTheme(a.backup.PreviousTheme))
+			}
+			continue
+		}
+		value, ok := a.backup.Values[key]
 		if !ok {
 			continue
 		}
-		values = append(values, v)
+		if err := restoreValues([]backupValue{value}); err != nil {
+			restoreErr = errors.Join(restoreErr, err)
+		}
+		restored++
 	}
-	if err := restoreValues(values); err != nil {
-		writeError(w, 500, "Не все значения удалось восстановить: "+err.Error())
+	if restoreErr != nil {
+		a.audit.write("backup.restore", "error", map[string]any{"stage": "ordered-restore", "error": restoreErr.Error()})
+		writeError(w, 500, "Не все параметры удалось восстановить: "+restoreErr.Error())
 		return
 	}
 	if _, wallpaper, exists, _ := regGet(`HKCU\Control Panel\Desktop`, "Wallpaper"); exists && wallpaper != "" {
 		if err := refreshWallpaper(wallpaper); err != nil {
+			a.audit.write("backup.restore", "error", map[string]any{"stage": "wallpaper", "error": err.Error()})
 			writeError(w, 500, "Значения восстановлены, но не удалось обновить обои: "+err.Error())
 			return
 		}
 	}
 	if err := os.Remove(a.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		a.audit.write("backup.restore", "error", map[string]any{"stage": "finalize", "error": err.Error()})
 		writeError(w, 500, "Значения восстановлены, но не удалось удалить резервную копию: "+err.Error())
 		return
 	}
 	a.backup = backupFile{Created: time.Now(), Values: map[string]backupValue{}, Order: []string{}, OrderKnown: true}
-	writeJSON(w, map[string]any{"ok": true, "restored": len(values)})
+	a.audit.write("backup.restore", "ok", map[string]any{"restored": restored})
+	writeJSON(w, map[string]any{"ok": true, "restored": restored})
 }
 
 func (a *app) handleRestartExplorer(w http.ResponseWriter, _ *http.Request) {
 	_ = exec.Command("taskkill.exe", "/F", "/IM", "explorer.exe").Run()
 	time.Sleep(500 * time.Millisecond)
 	if err := exec.Command("explorer.exe").Start(); err != nil {
+		a.audit.write("explorer.restart", "error", map[string]any{"error": err.Error()})
 		writeError(w, 500, err.Error())
 		return
 	}
+	a.audit.write("explorer.restart", "ok", nil)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -512,9 +570,11 @@ func (a *app) handleRestorePoint(w http.ResponseWriter, _ *http.Request) {
 	cmd := `Checkpoint-Computer -Description 'Win11 Customizer' -RestorePointType 'MODIFY_SETTINGS'`
 	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", cmd).CombinedOutput()
 	if err != nil {
+		a.audit.write("restore-point.create", "error", map[string]any{"error": cleanOutput(out)})
 		writeError(w, 500, "Не удалось создать точку восстановления: "+cleanOutput(out))
 		return
 	}
+	a.audit.write("restore-point.create", "ok", nil)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -541,9 +601,11 @@ func (a *app) handleWallpaper(w http.ResponseWriter, r *http.Request) {
 	}
 	mime := http.DetectContentType(data)
 	if err = a.installWallpaper(data, mime); err != nil {
+		a.audit.write("wallpaper.install", "error", map[string]any{"source": "file", "error": err.Error()})
 		writeError(w, 500, "Не удалось применить обои: "+err.Error())
 		return
 	}
+	a.audit.write("wallpaper.install", "ok", map[string]any{"source": "file", "mime": mime, "bytes": len(data)})
 	writeJSON(w, map[string]any{"ok": true, "mime": mime})
 }
 
@@ -570,16 +632,11 @@ func (a *app) handleCatalogWallpaper(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := &http.Client{
-		Timeout: 35 * time.Second,
-		CheckRedirect: func(next *http.Request, via []*http.Request) error {
-			if next.URL.Hostname() != "images.unsplash.com" || len(via) > 4 {
-				return errors.New("недопустимое перенаправление")
-			}
-			return nil
-		},
+		Timeout:       35 * time.Second,
+		CheckRedirect: wallpaperRedirectPolicy,
 	}
 	request, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, address, nil)
-	request.Header.Set("User-Agent", "Win11Customizer/1.3")
+	request.Header.Set("User-Agent", "Win11Customizer/"+appVersion)
 	response, err := client.Do(request)
 	if err != nil {
 		writeError(w, 502, "Не удалось скачать обои. Проверьте интернет")
@@ -597,10 +654,19 @@ func (a *app) handleCatalogWallpaper(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = a.installWallpaper(data, http.DetectContentType(data)); err != nil {
+		a.audit.write("wallpaper.install", "error", map[string]any{"source": req.ID, "error": err.Error()})
 		writeError(w, 500, "Не удалось применить обои: "+err.Error())
 		return
 	}
+	a.audit.write("wallpaper.install", "ok", map[string]any{"source": req.ID, "bytes": len(data)})
 	writeJSON(w, map[string]any{"ok": true, "id": req.ID})
+}
+
+func wallpaperRedirectPolicy(next *http.Request, via []*http.Request) error {
+	if next.URL.Scheme != "https" || next.URL.Hostname() != "images.unsplash.com" || len(via) > 4 {
+		return errors.New("недопустимое перенаправление")
+	}
+	return nil
 }
 
 func (a *app) installWallpaper(data []byte, mime string) error {
@@ -628,37 +694,19 @@ func (a *app) installWallpaper(data []byte, mime string) error {
 		{Path: `HKCU\Control Panel\Desktop`, Name: "WallpaperStyle", Type: "REG_SZ", On: "10"},
 		{Path: `HKCU\Control Panel\Desktop`, Name: "TileWallpaper", Type: "REG_SZ", On: "0"},
 	}
-	before := make([]backupValue, len(ops))
-	for i, op := range ops {
-		value, err := readBackupValue(op)
-		if err != nil {
-			return err
-		}
-		before[i] = value
-		a.rememberValue(op, value)
-	}
-	if err := a.saveBackup(); err != nil {
-		return err
-	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return errors.New("не удалось сохранить изображение")
 	}
+	plans := make([]registryPlan, 0, len(ops))
 	for _, op := range ops {
-		err = applyOperation(op, true)
-		if err == nil {
-			var matches bool
-			matches, err = operationMatches(op, true)
-			if err == nil && !matches {
-				err = errors.New("Windows не подтвердила параметр обоев")
-			}
-		}
-		if err != nil {
-			break
-		}
+		plans = append(plans, registryPlan{op: op, enabled: true})
 	}
-	if err == nil {
-		err = refreshWallpaper(path)
+	before, err := a.executeRegistryTransaction(plans)
+	if err != nil {
+		_ = os.Remove(path)
+		return err
 	}
+	err = refreshWallpaper(path)
 	if err != nil {
 		rollbackErr := restoreValues(before)
 		if before[0].Existed && before[0].Data != "" {
@@ -676,16 +724,12 @@ func (a *app) installWallpaper(data []byte, mime string) error {
 }
 
 func refreshWallpaper(path string) error {
-	safePath := strings.ReplaceAll(path, "'", "''")
-	script := `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class WallpaperNative { [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool SystemParametersInfo(int a,int b,string c,int d); }'; if (-not [WallpaperNative]::SystemParametersInfo(20,0,'` + safePath + `',3)) { exit 1 }`
-	out, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s", cleanOutput(out))
-	}
-	return nil
+	return setWallpaperNative(path)
 }
 
 func (a *app) handleExport(w http.ResponseWriter, _ *http.Request) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	w.Header().Set("Content-Disposition", `attachment; filename="win11-customizer-backup.json"`)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(a.backup)
@@ -705,80 +749,34 @@ func tweakEnabled(t tweak) (bool, error) {
 }
 
 func equalRegistry(a, b, typ string) bool {
-	if typ == "REG_DWORD" {
-		ai, ea := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a)), "0x"), 16, 64)
-		bi, eb := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(b)), "0x"), 16, 64)
-		if ea == nil && eb == nil {
-			return ai == bi
-		}
-		ad, ea := strconv.ParseUint(strings.TrimSpace(a), 10, 64)
-		bd, eb := strconv.ParseUint(strings.TrimSpace(b), 10, 64)
-		return ea == nil && eb == nil && ad == bd
+	if typ == "REG_DWORD" || typ == "REG_QWORD" {
+		ai, ea := parseRegistryNumber(a)
+		bi, eb := parseRegistryNumber(b)
+		return ea == nil && eb == nil && ai == bi
 	}
 	return a == b
 }
 
+func parseRegistryNumber(value string) (uint64, error) {
+	text := strings.ToLower(strings.TrimSpace(value))
+	base := 10
+	if strings.HasPrefix(text, "0x") {
+		text = strings.TrimPrefix(text, "0x")
+		base = 16
+	}
+	return strconv.ParseUint(text, base, 64)
+}
+
 func regGet(path, name string) (typ, data string, exists bool, err error) {
-	args := []string{"query", path}
-	if name == "" {
-		args = append(args, "/ve")
-	} else {
-		args = append(args, "/v", name)
-	}
-	out, cmdErr := exec.Command("reg.exe", args...).CombinedOutput()
-	if cmdErr != nil {
-		return "", "", false, nil
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		index := strings.Index(line, "REG_")
-		if index < 0 {
-			continue
-		}
-		rest := line[index:]
-		end := strings.IndexAny(rest, " \t\r")
-		if end < 0 {
-			return rest, "", true, nil
-		}
-		return rest[:end], strings.TrimSpace(rest[end:]), true, nil
-	}
-	return "", "", false, nil
+	return nativeRegistryText(path, name)
 }
 
 func regSet(path, name, typ, data string) error {
-	args := []string{"add", path}
-	if name == "" {
-		args = append(args, "/ve")
-	} else {
-		args = append(args, "/v", name)
-	}
-	args = append(args, "/t", typ, "/d", data, "/f")
-	out, err := exec.Command("reg.exe", args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s", cleanOutput(out))
-	}
-	return nil
+	return nativeSetRegistryText(path, name, typ, data)
 }
 
 func regDelete(path, name string) error {
-	_, _, exists, queryErr := regGet(path, name)
-	if queryErr != nil {
-		return queryErr
-	}
-	if !exists {
-		return nil
-	}
-	args := []string{"delete", path}
-	if name == "" {
-		args = append(args, "/ve")
-	} else {
-		args = append(args, "/v", name)
-	}
-	args = append(args, "/f")
-	out, err := exec.Command("reg.exe", args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s", cleanOutput(out))
-	}
-	return nil
+	return nativeDeleteRegistryValue(path, name)
 }
 
 func findTweak(id string) (*tweak, bool) {
@@ -790,15 +788,16 @@ func findTweak(id string) (*tweak, bool) {
 	return nil, false
 }
 
-func isAdmin() bool { return exec.Command("net.exe", "session").Run() == nil }
-
-func windowsInfo() string {
-	out, err := exec.Command("cmd.exe", "/c", "ver").CombinedOutput()
-	if err != nil {
-		return "Windows 11"
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
 	}
-	return strings.TrimSpace(string(out))
+	return false
 }
+
+func isAdmin() bool { return exec.Command("net.exe", "session").Run() == nil }
 
 func openBrowser(url string) error {
 	paths := []string{
