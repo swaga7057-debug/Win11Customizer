@@ -126,6 +126,35 @@ function bind() {
   profileInput.onchange=async()=>{const file=profileInput.files[0];if(!file)return;if(file.size>1024*1024){toast('Профиль больше 1 МБ',true);profileInput.value='';return;}try{const profile=JSON.parse(await file.text());const preview=await api('profile/preview',{method:'POST',body:JSON.stringify(profile)});const warning=preview.warnings?.length?` Экспериментальных параметров: ${preview.warnings.length}.`:'';const names=(preview.items||[]).slice(0,4).map(x=>`${x.enabled?'вкл.':'выкл.'} ${x.title}`).join(', '),more=preview.changes>4?` и ещё ${preview.changes-4}`:'';confirmBox('Применить профиль',`Изменений: ${preview.changes}${names?` — ${names}${more}`:''}.${warning} Перед применением сохранится точный снимок.`,async()=>{setBusy(true);try{const result=await api('profile/apply',{method:'POST',body:JSON.stringify(profile)});if(result.interfaceTheme)setTheme(result.interfaceTheme);toast(`Профиль применён · изменений: ${result.changed}`);await load();}catch(e){toast(e.message,true)}finally{setBusy(false);profileInput.value='';}});}catch(e){toast(e.message||'Некорректный профиль',true);profileInput.value='';}};
   $$('.theme-card').forEach(b => b.onclick=()=>setTheme(b.dataset.theme));
   const input=$('#wallpaperInput'), choose=$('#chooseWallpaperBtn'), apply=$('#applyWallpaperBtn'), preview=$('#wallpaperPreview');
+  const slidesForm = $('#slidesForm'), slidesPanel = slidesForm.closest('details');
+  async function slideCommand(action) {
+    const options = action ? {method:'POST', body:JSON.stringify({
+      action, folder:slidesForm.elements.folder.value.trim(), minutes:Number(slidesForm.elements.minutes.value)
+    })} : {};
+    try {
+      const result = await api('slides', options);
+      $('#slidesStatus').textContent = result.status;
+      if (action) await load();
+    } catch (error) { $('#slidesStatus').textContent = error.message; }
+  }
+  slidesForm.onsubmit = event => { event.preventDefault(); slideCommand('start'); };
+  $('#slidesStop').onclick = () => slideCommand('stop');
+  slidesPanel.ontoggle = () => { if (slidesPanel.open) slideCommand(); };
+  setInterval(() => { if (slidesPanel.open && !document.hidden) slideCommand(); }, 10000);
+  $('#onlinePhotoForm').onsubmit = event => {
+    event.preventDefault();
+    if (busy) return;
+    const url = event.currentTarget.elements.photo.value.trim();
+    confirmBox('Установить обои', 'Скачать выбранную фотографию с Unsplash и установить на рабочий стол?', async () => {
+      setBusy(true);
+      try {
+        await api('wallpaper/catalog', {method:'POST', body:JSON.stringify({id:'custom', url})});
+        toast('Фотография установлена');
+        await load();
+      } catch (error) { toast(error.message, true); }
+      finally { setBusy(false); }
+    });
+  };
   choose.onclick=()=>input.click();
   $('#wallpaperBox').ondragover=e=>{e.preventDefault();e.currentTarget.classList.add('drag')};
   $('#wallpaperBox').ondragleave=e=>e.currentTarget.classList.remove('drag');
