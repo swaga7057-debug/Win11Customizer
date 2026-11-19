@@ -15,3 +15,11 @@ func nativeWriteRegistryValue(string, string, uint32, []byte) error {
 func nativeDeleteRegistryValue(string, string) error {
 	return errors.New("реестр доступен только в Windows")
 }
+
+func nativeRegistryText(string, string) (string, string, bool, error) {
+	return "", "", false, errors.New("реестр доступен только в Windows")
+}
+
+func nativeSetRegistryText(string, string, string, string) error {
+	return errors.New("реестр доступен только в Windows")
+}
