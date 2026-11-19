@@ -63,6 +63,21 @@
               <button class="online-wallpaper" data-wallpaper="space" style="--photo:url('https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?auto=format&fit=crop&w=600&q=70')"><span>Космос</span></button>
               <button class="online-wallpaper" data-wallpaper="minimal" style="--photo:url('https://images.unsplash.com/photo-1557682250-33bd709cbe85?auto=format&fit=crop&w=600&q=70')"><span>Минимализм</span></button>
             </div>
+            <form id="onlinePhotoForm">
+              <a href="https://unsplash.com/wallpapers" target="_blank" rel="noopener noreferrer">Найти обои на Unsplash ↗</a>
+              <label>Ссылка на изображение <input type="url" name="photo" required placeholder="https://images.unsplash.com/photo-…"></label>
+              <button class="primary">Установить по ссылке</button>
+            </form>
+            <details><summary>Слайд-шоу из папки</summary>
+              <form id="slidesForm">
+                <label>Папка с обоями <input name="folder" required placeholder="C:\Pictures\Обои"></label>
+                <label>Интервал в минутах <input name="minutes" type="number" min="1" max="1440" value="15" required></label>
+                <button class="primary">Запустить</button>
+                <button type="button" id="slidesStop">Остановить</button>
+              </form>
+              <small>Фотографии меняются по имени, пока запущен Win11 Customizer.</small>
+              <output id="slidesStatus"></output>
+            </details>
           </div>
         </section>
 
