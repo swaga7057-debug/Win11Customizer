@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +26,7 @@ import (
 
 const (
 	appName    = "Win11 Customizer"
-	appVersion = "1.5.0"
+	appVersion = "1.6.0"
 )
 
 //go:embed web/*
@@ -83,6 +84,7 @@ type backupFile struct {
 }
 
 type app struct {
+	slides     *slideShow
 	mu         sync.Mutex
 	backupPath string
 	backup     backupFile
@@ -277,6 +279,8 @@ func (a *app) routes(mux *http.ServeMux, token string) {
 	mux.HandleFunc("POST /api/restore-point", auth(a.handleRestorePoint))
 	mux.HandleFunc("POST /api/wallpaper", auth(a.handleWallpaper))
 	mux.HandleFunc("POST /api/wallpaper/catalog", auth(a.handleCatalogWallpaper))
+	mux.HandleFunc("POST /api/slides", auth(a.handleSlides))
+	mux.HandleFunc("GET /api/slides", auth(a.handleSlides))
 	mux.HandleFunc("POST /api/theme", auth(a.handleTheme))
 	mux.HandleFunc("GET /api/profile", auth(a.handleProfileExport))
 	mux.HandleFunc("POST /api/profile/preview", auth(a.handleProfilePreview))
@@ -492,6 +496,7 @@ func (a *app) saveBackup() error {
 func (a *app) handleRestore(w http.ResponseWriter, _ *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.stopSlides()
 	if len(a.backup.Values) == 0 && !a.backup.ThemeCaptured {
 		writeJSON(w, map[string]any{"ok": true, "restored": 0})
 		return
@@ -618,16 +623,34 @@ var wallpaperCatalog = map[string]string{
 	"minimal":   "https://images.unsplash.com/photo-1557682250-33bd709cbe85?auto=format&fit=crop&w=2560&q=90",
 }
 
+func unsplashWallpaperURL(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.Host != "images.unsplash.com" || u.User != nil || !strings.HasPrefix(u.Path, "/photo-") || strings.Contains(u.Path[1:], "/") || len(u.Path) <= len("/photo-") {
+		return "", errors.New("Вставьте прямую ссылку на фото с images.unsplash.com")
+	}
+	u.RawQuery = "fit=max&fm=jpg&q=90&w=2560"
+	u.Fragment = ""
+	return u.String(), nil
+}
+
 func (a *app) handleCatalogWallpaper(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID string `json:"id"`
+		ID  string `json:"id"`
+		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&req); err != nil {
 		writeError(w, 400, "Некорректный запрос")
 		return
 	}
 	address, ok := wallpaperCatalog[req.ID]
-	if !ok {
+	if req.ID == "custom" {
+		var err error
+		address, err = unsplashWallpaperURL(req.URL)
+		if err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+	} else if !ok {
 		writeError(w, 404, "Обои не найдены")
 		return
 	}
@@ -689,13 +712,23 @@ func (a *app) installWallpaper(data []byte, mime string) error {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return errors.New("не удалось сохранить изображение")
+	}
+	if err := a.applyWallpaperPath(path); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	a.stopSlides()
+	return nil
+}
+
+// Caller holds a.mu. Source images always remain owned by their caller.
+func (a *app) applyWallpaperPath(path string) error {
 	ops := []operation{
 		{Path: `HKCU\Control Panel\Desktop`, Name: "Wallpaper", Type: "REG_SZ", On: path},
 		{Path: `HKCU\Control Panel\Desktop`, Name: "WallpaperStyle", Type: "REG_SZ", On: "10"},
 		{Path: `HKCU\Control Panel\Desktop`, Name: "TileWallpaper", Type: "REG_SZ", On: "0"},
-	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return errors.New("не удалось сохранить изображение")
 	}
 	plans := make([]registryPlan, 0, len(ops))
 	for _, op := range ops {
@@ -703,7 +736,6 @@ func (a *app) installWallpaper(data []byte, mime string) error {
 	}
 	before, err := a.executeRegistryTransaction(plans)
 	if err != nil {
-		_ = os.Remove(path)
 		return err
 	}
 	err = refreshWallpaper(path)
@@ -714,7 +746,6 @@ func (a *app) installWallpaper(data []byte, mime string) error {
 				rollbackErr = errors.Join(rollbackErr, refreshErr)
 			}
 		}
-		_ = os.Remove(path)
 		if rollbackErr != nil {
 			return fmt.Errorf("%v; автоматический откат: %w", err, rollbackErr)
 		}
